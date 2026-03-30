@@ -1,0 +1,186 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  font-family: Inter, sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #efede8;
+}
+
+@layer components {
+  .panel-shell {
+    @apply flex h-full shrink-0 flex-col border-r border-stone-200 bg-[#f8f7f4] p-4;
+  }
+
+  .elements-toolbar {
+    @apply w-[3.75rem] border border-stone-200 bg-slate-950/90 p-2 shadow-[0_14px_36px_rgba(17,24,39,0.08)] backdrop-blur;
+  }
+
+  .elements-tool-button {
+    @apply flex h-12 w-full items-center justify-center border border-white/10 bg-white/5 transition hover:border-white/20 hover:bg-white/10;
+  }
+
+  .elements-close-button {
+    @apply flex h-7 w-7 items-center justify-center border border-white/10 bg-white/5 text-xs text-white transition hover:bg-white/10;
+  }
+
+  .panel-header {
+    @apply mb-4 flex items-center justify-between border-b border-stone-200 pb-3;
+  }
+
+  .panel-title {
+    @apply text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500;
+  }
+
+  .panel-icon {
+    @apply h-7 w-7 border border-stone-200 bg-white text-xs text-stone-600 transition hover:bg-stone-100;
+  }
+
+  .field-shell {
+    @apply flex flex-col gap-1.5;
+  }
+
+  .field-label {
+    @apply text-[11px] font-medium uppercase tracking-wide text-stone-500;
+  }
+
+  .field-input {
+    @apply h-10 w-full border border-stone-200 bg-white px-3 text-sm text-stone-900 outline-none transition placeholder:text-stone-400 focus:border-sky-300 focus:ring-2 focus:ring-sky-100;
+  }
+
+  .canvas-viewport {
+    @apply relative h-full w-full overflow-hidden bg-[linear-gradient(180deg,#f6f4ef_0%,#f1eee8_100%)];
+  }
+
+  .canvas-world {
+    @apply absolute left-0 top-0 origin-top-left;
+  }
+
+  .canvas-element {
+    @apply absolute select-none rounded-2xl transition-shadow;
+  }
+
+  .canvas-element-selected {
+    @apply ring-2 ring-sky-400/80 ring-offset-2 ring-offset-[#fcfcfa];
+  }
+
+  .canvas-button {
+    @apply h-full w-full rounded-2xl border border-stone-200 bg-white px-4 text-sm font-medium text-stone-900 shadow-[0_10px_30px_rgba(17,24,39,0.06)] transition hover:border-stone-300 hover:bg-stone-50;
+  }
+
+  .canvas-text {
+    @apply min-h-full min-w-full rounded-xl px-2 py-1 text-[22px] font-medium leading-tight text-stone-900 outline-none;
+  }
+
+  .canvas-panel {
+    @apply flex h-full w-full items-start rounded-[24px] border border-stone-200 bg-white/80 p-4 shadow-[0_8px_24px_rgba(17,24,39,0.04)];
+  }
+
+  .canvas-group {
+    @apply flex h-full w-full items-start rounded-[24px] border border-dashed border-stone-300 bg-transparent p-4;
+  }
+}
+
+.theme-dark {
+  color: #f1f5f9;
+}
+
+.theme-dark .panel-shell {
+  background: #17191c;
+  border-color: #2a2f36;
+}
+
+.theme-dark .elements-toolbar {
+  background: rgba(23, 25, 28, 0.92);
+  border-color: #2a2f36;
+}
+
+.theme-dark .panel-header {
+  border-color: #2a2f36;
+}
+
+.theme-dark .panel-title,
+.theme-dark .field-label,
+.theme-dark .text-stone-500 {
+  color: #94a3b8 !important;
+}
+
+.theme-dark .text-stone-900,
+.theme-dark .text-stone-600 {
+  color: #e2e8f0 !important;
+}
+
+.theme-dark .border-stone-200 {
+  border-color: #2a2f36 !important;
+}
+
+.theme-dark .border-stone-300 {
+  border-color: #3b434d !important;
+}
+
+.theme-dark .bg-white,
+.theme-dark .bg-white\/92 {
+  background-color: #1b1f24 !important;
+}
+
+.theme-dark .bg-stone-50 {
+  background-color: #20242a !important;
+}
+
+.theme-dark .elements-tool-button {
+  background: #1b1f24;
+  border-color: #2a2f36;
+}
+
+.theme-dark .elements-close-button {
+  background: #1b1f24;
+  border-color: #2a2f36;
+}
+
+.theme-dark .panel-icon,
+.theme-dark .field-input,
+.theme-dark .toolbar-surface,
+.theme-dark .canvas-toolbar-surface {
+  background: #1b1f24 !important;
+  border-color: #2a2f36 !important;
+  color: #e2e8f0 !important;
+}
+
+.theme-dark .canvas-viewport {
+  background: linear-gradient(180deg, #14171b 0%, #101215 100%);
+}
+
+.theme-dark .bg-\[\#f5f3ef\] {
+  background: #111315 !important;
+}
+
+.theme-dark .canvas-button {
+  background: #1b1f24;
+  border-color: #2f3741;
+  color: #f8fafc;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.24);
+}
+
+.theme-dark .canvas-panel {
+  background: rgba(27, 31, 36, 0.92);
+  border-color: #2f3741;
+}
+
+.theme-dark .canvas-group {
+  border-color: #3b434d;
+}
+
+.theme-dark .canvas-text {
+  color: #f8fafc;
+}
