@@ -1,6 +1,5 @@
 import type React from "react";
 import { useRef } from "react";
-import { motion } from "framer-motion";
 import { GRID_SIZE } from "../constants";
 import { getVariableDisplayValue, renderBoundText } from "../utils/bindings";
 import type { CanvasElementModel, GameVariable } from "../types";
@@ -146,7 +145,7 @@ export function CanvasWorkspace(props: CanvasWorkspaceProps) {
               >
                 <div className="canvas-el-inner" style={{ width: "100%", height: "100%" }}>
                   {element.type === "button" && (
-                    <motion.button
+                    <button
                       className="canvas-button-el"
                       style={{
                         background:
@@ -161,11 +160,9 @@ export function CanvasWorkspace(props: CanvasWorkspaceProps) {
                         fontWeight: resolveFontWeight(element),
                         fontStyle: element.fontItalic ? "italic" : "normal",
                       }}
-                      whileTap={{ scale: 0.9 }}
-                      transition={{ type: "spring", stiffness: 520, damping: 26, mass: 0.4 }}
                     >
                       {resolveElementText(element)}
-                    </motion.button>
+                    </button>
                   )}
                   {element.type === "text" && (
                     <div
@@ -192,8 +189,6 @@ export function CanvasWorkspace(props: CanvasWorkspaceProps) {
                   {element.type === "input" && (
                     <div
                       className="canvas-input-el"
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onClick={(event) => event.stopPropagation()}
                     >
                       <input
                         style={{

@@ -56,6 +56,12 @@ export default function App() {
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
   const [topbarVisible, setTopbarVisible] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [snapToGrid, setSnapToGrid] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return window.localStorage.getItem("madegame-snap-grid") === "true";
+  });
   const [panelVisibility, setPanelVisibility] = useState<PanelVisibilityState>(INITIAL_PANEL_VISIBILITY);
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
   const [paletteDragType, setPaletteDragType] = useState<ElementType | null>(null);
@@ -84,6 +90,10 @@ export default function App() {
     document.documentElement.classList.toggle("theme-dark", theme === "dark");
     document.documentElement.style.colorScheme = theme;
   }, [theme]);
+
+  useEffect(() => {
+    window.localStorage.setItem("madegame-snap-grid", String(snapToGrid));
+  }, [snapToGrid]);
 
   useEffect(() => {
     if (selectedElementIds.length === 0) {
@@ -357,6 +367,10 @@ export default function App() {
     );
   }
 
+  function snapPosition(value: number) {
+    return Math.round(value / 24) * 24;
+  }
+
   /**
    * Keeps an element fully inside the visible static stage.
    * @param element - element candidate position and size
@@ -366,11 +380,13 @@ export default function App() {
     const inset = 16;
     const maxX = Math.max(inset, viewportSize.width - element.width - inset);
     const maxY = Math.max(inset, viewportSize.height - element.height - inset);
+    const nextX = snapToGrid ? snapPosition(element.x) : element.x;
+    const nextY = snapToGrid ? snapPosition(element.y) : element.y;
 
     return {
       ...element,
-      x: Math.min(Math.max(element.x, inset), maxX),
-      y: Math.min(Math.max(element.y, inset), maxY),
+      x: Math.min(Math.max(nextX, inset), maxX),
+      y: Math.min(Math.max(nextY, inset), maxY),
     };
   }
 
@@ -444,23 +460,26 @@ export default function App() {
         if (!conditionsPass) {
           if (trigger.hasElse) {
             (trigger.elseActions ?? []).forEach((action) =>
-              executeAction(action, currentElements, currentVariables),
+              executeAction(action, elementId, currentElements, currentVariables),
             );
           }
           return;
         }
 
-        trigger.actions.forEach((action) => executeAction(action, currentElements, currentVariables));
+        trigger.actions.forEach((action) =>
+          executeAction(action, elementId, currentElements, currentVariables),
+        );
       });
   }
 
   function executeAction(
     action: TriggerAction,
+    sourceElementId: string,
     currentElements: CanvasElementModel[],
     currentVariables: GameVariable[],
   ) {
     const variable = currentVariables.find((entry) => entry.id === action.targetVariableId);
-    const targetElementId = action.targetElementId ?? selectedElementIds[0];
+    const targetElementId = action.targetElementId ?? sourceElementId;
     const targetElement = currentElements.find((entry) => entry.id === targetElementId);
     const actionValue = action.value ?? "";
 
@@ -548,16 +567,25 @@ export default function App() {
   }
 
   function updateVariable(variableId: string, patch: Partial<GameVariable>) {
-    setVariables((current) =>
-      current.map((variable) => {
-        if (variable.id !== variableId) {
-          return variable;
-        }
+    const currentVariable = variables.find((variable) => variable.id === variableId);
+    if (!currentVariable) {
+      return;
+    }
 
-        const nextVariable = { ...variable, ...patch };
-        return nextVariable;
-      }),
+    const nextVariable = { ...currentVariable, ...patch };
+    if (JSON.stringify(currentVariable) === JSON.stringify(nextVariable)) {
+      return;
+    }
+
+    setVariables((current) =>
+      current.map((variable) => (variable.id === variableId ? nextVariable : variable)),
     );
+
+    if (JSON.stringify(currentVariable.value) !== JSON.stringify(nextVariable.value)) {
+      variableExecutionGuardRef.current.add(variableId);
+      elements.forEach((element) => runTriggerSet(element.id, "variable_change", variableId));
+      variableExecutionGuardRef.current.delete(variableId);
+    }
   }
 
   function deleteVariable(variableId: string) {
@@ -1041,6 +1069,24 @@ export default function App() {
     }
 
     if (element.type === "button") {
+      const button = (event.currentTarget as HTMLDivElement).querySelector(".canvas-button-el");
+      if (button instanceof HTMLButtonElement) {
+        button.getAnimations().forEach((animation) => animation.cancel());
+        button.animate(
+          [
+            { transform: "scale(1)" },
+            { transform: "scale(0.985)", offset: 0.18 },
+            { transform: "scale(0.955)", offset: 0.52 },
+            { transform: "scale(1.004)", offset: 0.88 },
+            { transform: "scale(1)" },
+          ],
+          {
+            duration: 1100,
+            easing: "cubic-bezier(0.19, 1, 0.22, 1)",
+            fill: "none",
+          },
+        );
+      }
       runTriggerSet(elementId, "click");
     }
   }
@@ -1053,6 +1099,9 @@ export default function App() {
     const documentState: AppDocument = {
       elements,
       variables,
+      settings: {
+        snapToGrid,
+      },
       panelVisibility,
     };
 
@@ -1072,6 +1121,7 @@ export default function App() {
    */
   function importDocument(documentState: AppDocument) {
     clearAllTimers();
+    setSnapToGrid(documentState.settings?.snapToGrid ?? false);
     setElements((documentState.elements ?? []).map((element) => clampElementToStage(element)));
     setVariables(documentState.variables ?? []);
     setPanelVisibility(documentState.panelVisibility ?? INITIAL_PANEL_VISIBILITY);
@@ -1171,6 +1221,8 @@ export default function App() {
 
       <SettingsPanel
         open={settingsOpen && topbarVisible}
+        snapToGrid={snapToGrid}
+        onToggleSnapToGrid={setSnapToGrid}
         onExport={exportDocument}
         onImport={() => importInputRef.current?.click()}
       />

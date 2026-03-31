@@ -120,6 +120,9 @@ export interface RuntimeTimers {
 export interface AppDocument {
   elements: CanvasElementModel[];
   variables: GameVariable[];
+  settings?: {
+    snapToGrid?: boolean;
+  };
   viewport?: {
     x: number;
     y: number;

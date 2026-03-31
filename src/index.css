@@ -233,27 +233,108 @@ body {
 .settings-popover {
   position: absolute;
   left: 50%;
-  top: 58px;
+  top: 72px;
   transform: translateX(-50%);
   z-index: 49;
-  min-width: 180px;
-  background: var(--bg-panel);
+  min-width: 300px;
+  background: color-mix(in srgb, var(--bg-panel) 86%, var(--bg-base));
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 18px;
   box-shadow: var(--shadow-lg);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   overflow: hidden;
 }
+.settings-popover-arrow {
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  transform: translateX(-50%) rotate(45deg);
+  background: inherit;
+  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+}
 .settings-popover-header {
-  padding: 10px 12px 8px;
+  padding: 14px 16px 12px;
   border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, var(--bg-panel-inner), transparent);
+}
+.settings-popover-subtitle {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
 }
 .settings-popover-body {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px;
+  gap: 14px;
+  padding: 14px 16px 16px;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-panel-inner);
+}
+.settings-row-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.settings-row-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.015em;
+}
+.settings-row-description {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+.settings-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.settings-toggle {
+  position: relative;
+  appearance: none;
+  -webkit-appearance: none;
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-input);
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+  flex-shrink: 0;
+}
+.settings-toggle::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  transition: transform 0.2s, background 0.2s;
+}
+.settings-toggle:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.settings-toggle:checked::after {
+  transform: translateX(18px);
+  background: #fff;
 }
 
 /* ─────────────────────────────────────────── 
