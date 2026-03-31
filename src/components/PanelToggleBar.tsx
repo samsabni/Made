@@ -1,4 +1,4 @@
-import type { PanelVisibilityState } from "../types";
+import type { EditorMode, PanelVisibilityState } from "../types";
 
 const PANEL_LABELS: Record<keyof PanelVisibilityState, string> = {
   left: "Elements",
@@ -10,6 +10,10 @@ interface PanelToggleBarProps {
   panelVisibility: PanelVisibilityState;
   onOpenPanel: (panel: keyof PanelVisibilityState) => void;
   onCreateVariable: () => void;
+  mode: EditorMode;
+  onEnterPreview: () => void;
+  onExitPreview: () => void;
+  onResetPreview: () => void;
   theme: "light" | "dark";
   onToggleTheme: () => void;
   visible: boolean;
@@ -22,6 +26,10 @@ export function PanelToggleBar({
   panelVisibility,
   onOpenPanel,
   onCreateVariable,
+  mode,
+  onEnterPreview,
+  onExitPreview,
+  onResetPreview,
   theme,
   onToggleTheme,
   visible,
@@ -40,13 +48,28 @@ export function PanelToggleBar({
         <span className="topbar-badge" style={{ paddingLeft: 12 }}>Made</span>
         <div className="topbar-sep" />
 
-        {/* Primary action */}
-        <button className="topbar-btn accent" onClick={onCreateVariable} id="btn-add-variable">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 5v14M5 12h14"/>
-          </svg>
-          Variable
-        </button>
+        {mode === "edit" ? (
+          <>
+            <button className="topbar-btn accent" onClick={onEnterPreview} id="btn-enter-preview">
+              Preview
+            </button>
+            <button className="topbar-btn" onClick={onCreateVariable} id="btn-add-variable">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 5v14M5 12h14"/>
+              </svg>
+              Variable
+            </button>
+          </>
+        ) : (
+          <>
+            <button className="topbar-btn accent" onClick={onExitPreview} id="btn-exit-preview">
+              Stop preview
+            </button>
+            <button className="topbar-btn" onClick={onResetPreview} id="btn-reset-preview">
+              Reset
+            </button>
+          </>
+        )}
 
         <div className="topbar-sep" />
 

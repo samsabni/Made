@@ -2,7 +2,7 @@ import type React from "react";
 import { useRef } from "react";
 import { GRID_SIZE } from "../constants";
 import { getVariableDisplayValue, renderBoundText } from "../utils/bindings";
-import type { CanvasElementModel, GameVariable } from "../types";
+import type { CanvasElementModel, EditorMode, GameVariable } from "../types";
 
 export interface SelectionBox {
   x: number;
@@ -17,6 +17,7 @@ export interface WorldPoint {
 }
 
 interface CanvasWorkspaceProps {
+  mode: EditorMode;
   elements: CanvasElementModel[];
   variables: GameVariable[];
   selectedElementIds: string[];
@@ -34,6 +35,7 @@ interface CanvasWorkspaceProps {
 
 export function CanvasWorkspace(props: CanvasWorkspaceProps) {
   const {
+    mode,
     elements,
     variables,
     selectedElementIds,
@@ -94,6 +96,8 @@ export function CanvasWorkspace(props: CanvasWorkspaceProps) {
       <div
         ref={viewportRef}
         className="canvas-viewport"
+        data-mode={mode}
+        style={{ backgroundSize: `${GRID_SIZE}px ${GRID_SIZE}px` }}
         onPointerDown={(event) => onCanvasPointerDown(toWorldPoint(event.clientX, event.clientY), event)}
         onPointerMove={(event) => onCanvasPointerMove(toWorldPoint(event.clientX, event.clientY), event)}
         onPointerUp={(event) => onCanvasPointerUp(toWorldPoint(event.clientX, event.clientY), event)}

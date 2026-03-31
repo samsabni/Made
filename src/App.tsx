@@ -9,14 +9,22 @@ import {
   type SelectionBox,
   type WorldPoint,
 } from "./components/CanvasWorkspace";
-import { createDefaultElement, createDefaultTrigger, ELEMENT_LABELS, NEW_VARIABLE_DEFAULTS } from "./constants";
+import {
+  createDefaultElement,
+  createDefaultTrigger,
+  ELEMENT_LABELS,
+  GRID_SIZE,
+  NEW_VARIABLE_DEFAULTS,
+} from "./constants";
 import type {
   AppDocument,
   CanvasElementModel,
   Condition,
+  EditorMode,
   ElementType,
   GameVariable,
   PanelVisibilityState,
+  PrimitiveValue,
   RuntimeTimers,
   TriggerAction,
   TriggerDefinition,
@@ -34,16 +42,53 @@ interface DragState {
   targetElementId?: string;
 }
 
+interface RuntimeDraft {
+  elements: CanvasElementModel[];
+  variables: GameVariable[];
+}
+
+interface TimerHandle {
+  kind: "interval" | "timeout";
+  id: number;
+}
+
 const INITIAL_PANEL_VISIBILITY: PanelVisibilityState = {
   left: { open: true, minimized: false },
   right: { open: true, minimized: false },
   variables: { open: true, minimized: false },
 };
 
-/**
- * Hosts the entire prototype state, including execution and timer runtime.
- * Keeping the logic in one module makes the first version easier to debug and extend.
- */
+function clonePrimitiveValue(value: PrimitiveValue): PrimitiveValue {
+  return Array.isArray(value) ? [...value] : value;
+}
+
+function cloneVariable(variable: GameVariable): GameVariable {
+  return {
+    ...variable,
+    value: clonePrimitiveValue(variable.value),
+  };
+}
+
+function cloneTrigger(trigger: TriggerDefinition): TriggerDefinition {
+  return {
+    ...trigger,
+    conditions: trigger.conditions.map((condition) => ({ ...condition })),
+    actions: trigger.actions.map((action) => ({ ...action })),
+    elseActions: trigger.elseActions?.map((action) => ({ ...action })),
+  };
+}
+
+function cloneElement(element: CanvasElementModel): CanvasElementModel {
+  return {
+    ...element,
+    triggers: element.triggers.map(cloneTrigger),
+  };
+}
+
+function valuesMatch(left: PrimitiveValue, right: PrimitiveValue) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 export default function App() {
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") {
@@ -51,8 +96,11 @@ export default function App() {
     }
     return window.localStorage.getItem("madegame-theme") === "dark" ? "dark" : "light";
   });
-  const [elements, setElements] = useState<CanvasElementModel[]>([]);
-  const [variables, setVariables] = useState<GameVariable[]>([]);
+  const [editorMode, setEditorMode] = useState<EditorMode>("edit");
+  const [documentElements, setDocumentElements] = useState<CanvasElementModel[]>([]);
+  const [documentVariables, setDocumentVariables] = useState<GameVariable[]>([]);
+  const [runtimeElements, setRuntimeElements] = useState<CanvasElementModel[]>([]);
+  const [runtimeVariables, setRuntimeVariables] = useState<GameVariable[]>([]);
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
   const [topbarVisible, setTopbarVisible] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -62,10 +110,11 @@ export default function App() {
     }
     return window.localStorage.getItem("madegame-snap-grid") === "true";
   });
-  const [panelVisibility, setPanelVisibility] = useState<PanelVisibilityState>(INITIAL_PANEL_VISIBILITY);
+  const [panelVisibility, setPanelVisibility] = useState<PanelVisibilityState>(
+    INITIAL_PANEL_VISIBILITY,
+  );
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
   const [paletteDragType, setPaletteDragType] = useState<ElementType | null>(null);
-  const [runtimeTimers, setRuntimeTimers] = useState<RuntimeTimers>({});
   const [viewportSize, setViewportSize] = useState({ width: 1040, height: 720 });
   const zIndexRef = useRef(1);
   const countersRef = useRef<Record<string, number>>({});
@@ -76,13 +125,21 @@ export default function App() {
     string_array: 0,
   });
   const dragStateRef = useRef<DragState | null>(null);
-  const variableExecutionGuardRef = useRef<Set<string>>(new Set());
-  const timerHandlesRef = useRef<Record<string, number>>({});
+  const timerHandlesRef = useRef<Record<string, TimerHandle>>({});
+  const runtimeTimersRef = useRef<RuntimeTimers>({});
+  const runtimeElementsRef = useRef<CanvasElementModel[]>([]);
+  const runtimeVariablesRef = useRef<GameVariable[]>([]);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const canvasViewportRef = useRef<HTMLDivElement | null>(null);
+
+  const activeElements = editorMode === "preview" ? runtimeElements : documentElements;
+  const activeVariables = editorMode === "preview" ? runtimeVariables : documentVariables;
   const selectedElement = useMemo(
-    () => elements.find((element) => element.id === selectedElementIds[0]) ?? null,
-    [elements, selectedElementIds],
+    () =>
+      editorMode === "edit"
+        ? documentElements.find((element) => element.id === selectedElementIds[0]) ?? null
+        : null,
+    [documentElements, editorMode, selectedElementIds],
   );
 
   useEffect(() => {
@@ -96,13 +153,17 @@ export default function App() {
   }, [snapToGrid]);
 
   useEffect(() => {
+    if (editorMode !== "edit") {
+      return;
+    }
+
     if (selectedElementIds.length === 0) {
       setPanelVisibility((current) => ({
         ...current,
         right: { ...current.right, open: false },
       }));
     }
-  }, [selectedElementIds]);
+  }, [editorMode, selectedElementIds]);
 
   useEffect(() => {
     const node = canvasViewportRef.current;
@@ -110,9 +171,6 @@ export default function App() {
       return;
     }
 
-    /**
-     * Tracks the visible canvas viewport size so centering math uses the actual workspace.
-     */
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (!entry) {
@@ -129,137 +187,115 @@ export default function App() {
     return () => observer.disconnect();
   }, []);
 
-  /**
-   * Starts or restarts a timer interval for an element trigger.
-   * @param elementId - element owning the timer
-   * @param triggerId - timer trigger id
-   * @param intervalMs - current timer interval
-   * @returns void
-   */
-  function startTimer(elementId: string, triggerId: string, intervalMs: number) {
-    const key = `${elementId}:${triggerId}`;
-    window.clearInterval(timerHandlesRef.current[key]);
-
-    timerHandlesRef.current[key] = window.setInterval(() => {
-      runTriggerSet(elementId, "timer", undefined, triggerId);
-    }, intervalMs);
-
-    setRuntimeTimers((current) => ({
-      ...current,
-      [key]: {
-        running: true,
-        paused: false,
-        intervalMs,
-        remainingMs: null,
-        startedAt: Date.now(),
-      },
-    }));
-  }
-
-  function stopTimer(elementId: string, triggerId: string) {
-    const key = `${elementId}:${triggerId}`;
-    window.clearInterval(timerHandlesRef.current[key]);
-    delete timerHandlesRef.current[key];
-
-    setRuntimeTimers((current) => ({
-      ...current,
-      [key]: {
-        running: false,
-        paused: false,
-        intervalMs: current[key]?.intervalMs ?? 1000,
-        remainingMs: null,
-        startedAt: null,
-      },
-    }));
-  }
-
-  function pauseTimer(elementId: string, triggerId: string) {
-    const key = `${elementId}:${triggerId}`;
-    const timer = runtimeTimers[key];
-    if (!timer || !timer.running || timer.paused || timer.startedAt === null) {
-      return;
-    }
-
-    const elapsed = Date.now() - timer.startedAt;
-    const remainingMs = Math.max(timer.intervalMs - elapsed, 0);
-    window.clearInterval(timerHandlesRef.current[key]);
-    delete timerHandlesRef.current[key];
-
-    setRuntimeTimers((current) => ({
-      ...current,
-      [key]: {
-        ...timer,
-        paused: true,
-        running: false,
-        remainingMs,
-      },
-    }));
-  }
-
-  function resumeTimer(elementId: string, triggerId: string) {
-    const key = `${elementId}:${triggerId}`;
-    const timer = runtimeTimers[key];
-    if (!timer || !timer.paused) {
-      return;
-    }
-
-    const waitMs = timer.remainingMs ?? timer.intervalMs;
-    window.setTimeout(() => {
-      runTriggerSet(elementId, "timer", undefined, triggerId);
-      startTimer(elementId, triggerId, timer.intervalMs);
-    }, waitMs);
-
-    setRuntimeTimers((current) => ({
-      ...current,
-      [key]: {
-        ...timer,
-        paused: false,
-        running: true,
-        remainingMs: null,
-        startedAt: Date.now(),
-      },
-    }));
-  }
-
-  useEffect(() => {
-    elements.forEach((element) => {
-      element.triggers
-        .filter((trigger) => trigger.type === "timer" && trigger.timerAutoStart)
-        .forEach((trigger) => {
-          const key = `${element.id}:${trigger.id}`;
-          if (!runtimeTimers[key]?.running && !runtimeTimers[key]?.paused) {
-            startTimer(element.id, trigger.id, trigger.timerIntervalMs ?? 1000);
-          }
-        });
-    });
-
-    return () => {
-      Object.values(timerHandlesRef.current).forEach((timerId) => window.clearInterval(timerId));
-    };
-  }, [elements]);
+  useEffect(() => () => clearAllTimers(), []);
 
   function makeId(prefix: string) {
     countersRef.current[prefix] = (countersRef.current[prefix] ?? 0) + 1;
     return `${prefix}-${countersRef.current[prefix]}`;
   }
 
-  /**
-   * Clears all active timer intervals before loading a new document.
-   * @returns void
-   */
-  function clearAllTimers() {
-    Object.values(timerHandlesRef.current).forEach((timerId) => window.clearInterval(timerId));
-    timerHandlesRef.current = {};
-    setRuntimeTimers({});
+  function clearTimerHandle(key: string) {
+    const handle = timerHandlesRef.current[key];
+    if (!handle) {
+      return;
+    }
+
+    if (handle.kind === "interval") {
+      window.clearInterval(handle.id);
+    } else {
+      window.clearTimeout(handle.id);
+    }
+
+    delete timerHandlesRef.current[key];
   }
 
-  /**
-   * Rebuilds local id/name counters from imported content so newly created items keep incrementing cleanly.
-   * @param nextElements - imported canvas elements
-   * @param nextVariables - imported variables
-   * @returns void
-   */
-  function syncCountersFromDocument(nextElements: CanvasElementModel[], nextVariables: GameVariable[]) {
+  function clearAllTimers() {
+    Object.keys(timerHandlesRef.current).forEach(clearTimerHandle);
+    runtimeTimersRef.current = {};
+  }
+
+  function startTimer(elementId: string, triggerId: string, intervalMs: number) {
+    const key = `${elementId}:${triggerId}`;
+    clearTimerHandle(key);
+
+    timerHandlesRef.current[key] = {
+      kind: "interval",
+      id: window.setInterval(() => {
+        runRuntimeTriggerSet(elementId, "timer", undefined, triggerId);
+      }, intervalMs),
+    };
+
+    runtimeTimersRef.current[key] = {
+      running: true,
+      paused: false,
+      intervalMs,
+      remainingMs: null,
+      startedAt: Date.now(),
+    };
+  }
+
+  function stopTimer(elementId: string, triggerId: string) {
+    const key = `${elementId}:${triggerId}`;
+    clearTimerHandle(key);
+
+    runtimeTimersRef.current[key] = {
+      running: false,
+      paused: false,
+      intervalMs: runtimeTimersRef.current[key]?.intervalMs ?? 1000,
+      remainingMs: null,
+      startedAt: null,
+    };
+  }
+
+  function pauseTimer(elementId: string, triggerId: string) {
+    const key = `${elementId}:${triggerId}`;
+    const timer = runtimeTimersRef.current[key];
+    if (!timer || !timer.running || timer.paused || timer.startedAt === null) {
+      return;
+    }
+
+    const elapsed = Date.now() - timer.startedAt;
+    clearTimerHandle(key);
+
+    runtimeTimersRef.current[key] = {
+      ...timer,
+      paused: true,
+      running: false,
+      remainingMs: Math.max(timer.intervalMs - elapsed, 0),
+    };
+  }
+
+  function resumeTimer(elementId: string, triggerId: string) {
+    const key = `${elementId}:${triggerId}`;
+    const timer = runtimeTimersRef.current[key];
+    if (!timer || !timer.paused) {
+      return;
+    }
+
+    const waitMs = timer.remainingMs ?? timer.intervalMs;
+    clearTimerHandle(key);
+
+    timerHandlesRef.current[key] = {
+      kind: "timeout",
+      id: window.setTimeout(() => {
+        runRuntimeTriggerSet(elementId, "timer", undefined, triggerId);
+        startTimer(elementId, triggerId, timer.intervalMs);
+      }, waitMs),
+    };
+
+    runtimeTimersRef.current[key] = {
+      ...timer,
+      paused: false,
+      running: true,
+      remainingMs: null,
+      startedAt: Date.now(),
+    };
+  }
+
+  function syncCountersFromDocument(
+    nextElements: CanvasElementModel[],
+    nextVariables: GameVariable[],
+  ) {
     const nextCounters: Record<string, number> = {};
     const nextVariableCounters: Record<VariableType, number> = {
       boolean: 0,
@@ -274,7 +310,10 @@ export default function App() {
 
       const idMatch = element.id.match(/^(.*)-(\d+)$/);
       if (idMatch) {
-        nextCounters[idMatch[1]] = Math.max(nextCounters[idMatch[1]] ?? 0, Number(idMatch[2]));
+        nextCounters[idMatch[1]] = Math.max(
+          nextCounters[idMatch[1]] ?? 0,
+          Number(idMatch[2]),
+        );
       }
 
       const typeLabel = ELEMENT_LABELS[element.type];
@@ -290,7 +329,10 @@ export default function App() {
     nextVariables.forEach((variable) => {
       const idMatch = variable.id.match(/^variable-(\d+)$/);
       if (idMatch) {
-        nextCounters.variable = Math.max(nextCounters.variable ?? 0, Number(idMatch[1]));
+        nextCounters.variable = Math.max(
+          nextCounters.variable ?? 0,
+          Number(idMatch[1]),
+        );
       }
 
       const patterns: Record<VariableType, RegExp> = {
@@ -301,7 +343,10 @@ export default function App() {
       };
       const match = variable.name.match(patterns[variable.type]);
       if (match) {
-        nextVariableCounters[variable.type] = Math.max(nextVariableCounters[variable.type], Number(match[1]));
+        nextVariableCounters[variable.type] = Math.max(
+          nextVariableCounters[variable.type],
+          Number(match[1]),
+        );
       }
     });
 
@@ -325,6 +370,93 @@ export default function App() {
     return `list${index}`;
   }
 
+  function snapPosition(value: number) {
+    return Math.round(value / GRID_SIZE) * GRID_SIZE;
+  }
+
+  function clampElementToStage(
+    element: CanvasElementModel,
+    shouldSnap: boolean = snapToGrid,
+  ): CanvasElementModel {
+    const inset = 16;
+    const maxX = Math.max(inset, viewportSize.width - element.width - inset);
+    const maxY = Math.max(inset, viewportSize.height - element.height - inset);
+    const nextX = shouldSnap ? snapPosition(element.x) : element.x;
+    const nextY = shouldSnap ? snapPosition(element.y) : element.y;
+
+    return {
+      ...element,
+      x: Math.min(Math.max(nextX, inset), maxX),
+      y: Math.min(Math.max(nextY, inset), maxY),
+    };
+  }
+
+  function cloneElements(elements: CanvasElementModel[]) {
+    return elements.map((element) => cloneElement(element));
+  }
+
+  function cloneVariables(variables: GameVariable[]) {
+    return variables.map((variable) => cloneVariable(variable));
+  }
+
+  function commitRuntime(nextElements: CanvasElementModel[], nextVariables: GameVariable[]) {
+    runtimeElementsRef.current = nextElements;
+    runtimeVariablesRef.current = nextVariables;
+    setRuntimeElements(nextElements);
+    setRuntimeVariables(nextVariables);
+  }
+
+  function commitRuntimeElements(nextElements: CanvasElementModel[]) {
+    runtimeElementsRef.current = nextElements;
+    setRuntimeElements(nextElements);
+  }
+
+  function startAutoPreviewTimers(nextElements: CanvasElementModel[]) {
+    nextElements.forEach((element) => {
+      element.triggers
+        .filter((trigger) => trigger.type === "timer" && trigger.timerAutoStart)
+        .forEach((trigger) => {
+          startTimer(element.id, trigger.id, trigger.timerIntervalMs ?? 1000);
+        });
+    });
+  }
+
+  function resetPreview(
+    baseElements: CanvasElementModel[] = documentElements,
+    baseVariables: GameVariable[] = documentVariables,
+  ) {
+    clearAllTimers();
+
+    const nextElements = cloneElements(baseElements).map((element) =>
+      clampElementToStage(element),
+    );
+    const nextVariables = cloneVariables(baseVariables);
+
+    commitRuntime(nextElements, nextVariables);
+    startAutoPreviewTimers(nextElements);
+  }
+
+  function enterPreview() {
+    setEditorMode("preview");
+    setSelectedElementIds([]);
+    setSelectionBox(null);
+    setSettingsOpen(false);
+    setPaletteDragType(null);
+    setPanelVisibility((current) => ({
+      ...current,
+      right: { ...current.right, open: false },
+    }));
+    resetPreview();
+  }
+
+  function exitPreview() {
+    clearAllTimers();
+    commitRuntime([], []);
+    setEditorMode("edit");
+    setSelectionBox(null);
+    setPaletteDragType(null);
+  }
+
   function spawnElement(type: ElementType, x = 0, y = 0) {
     const baseElement = createDefaultElement(
       type,
@@ -336,7 +468,7 @@ export default function App() {
     );
     const element = clampElementToStage(baseElement);
 
-    setElements((current) => [...current, element]);
+    setDocumentElements((current) => [...current, element]);
     setSelectedElementIds([element.id]);
     setPanelVisibility((current) => ({
       ...current,
@@ -352,7 +484,7 @@ export default function App() {
       value: NEW_VARIABLE_DEFAULTS[type](),
     };
 
-    setVariables((current) => [...current, variable]);
+    setDocumentVariables((current) => [...current, variable]);
     setPanelVisibility((current) => ({
       ...current,
       variables: { open: true, minimized: false },
@@ -360,257 +492,38 @@ export default function App() {
   }
 
   function updateElement(elementId: string, patch: Partial<CanvasElementModel>) {
-    setElements((current) =>
+    setDocumentElements((current) =>
       current.map((element) =>
         element.id === elementId ? clampElementToStage({ ...element, ...patch }) : element,
       ),
     );
   }
 
-  function snapPosition(value: number) {
-    return Math.round(value / 24) * 24;
-  }
-
-  /**
-   * Keeps an element fully inside the visible static stage.
-   * @param element - element candidate position and size
-   * @returns clamped element
-   */
-  function clampElementToStage(element: CanvasElementModel): CanvasElementModel {
-    const inset = 16;
-    const maxX = Math.max(inset, viewportSize.width - element.width - inset);
-    const maxY = Math.max(inset, viewportSize.height - element.height - inset);
-    const nextX = snapToGrid ? snapPosition(element.x) : element.x;
-    const nextY = snapToGrid ? snapPosition(element.y) : element.y;
-
-    return {
-      ...element,
-      x: Math.min(Math.max(nextX, inset), maxX),
-      y: Math.min(Math.max(nextY, inset), maxY),
-    };
-  }
-
-  /**
-   * Updates a variable and dispatches variable-change triggers only when the value actually changes.
-   * A per-tick guard blocks a variable from recursively retriggering itself forever.
-   * @param variableId - variable to mutate
-   * @param nextValue - new runtime value
-   * @returns void
-   */
-  function applyVariableChange(variableId: string, nextValue: GameVariable["value"]) {
-    let changed = false;
-
-    setVariables((current) =>
-      current.map((variable) => {
-        if (variable.id !== variableId) {
-          return variable;
-        }
-
-        const sameValue = JSON.stringify(variable.value) === JSON.stringify(nextValue);
-        if (!sameValue) {
-          changed = true;
-        }
-
-        return sameValue ? variable : { ...variable, value: nextValue };
-      }),
-    );
-
-    if (!changed || variableExecutionGuardRef.current.has(variableId)) {
-      return;
-    }
-
-    variableExecutionGuardRef.current.add(variableId);
-    elements.forEach((element) => runTriggerSet(element.id, "variable_change", variableId));
-    variableExecutionGuardRef.current.delete(variableId);
-  }
-
-  /**
-   * Executes matching triggers synchronously from top to bottom.
-   * Conditions are checked first, then each action mutates the current state immediately.
-   * @param elementId - element owning the trigger set
-   * @param triggerType - requested trigger type to run
-   * @param changedVariableId - optional variable id for variable-change events
-   * @param specificTriggerId - optional timer id when only one trigger should run
-   * @returns void
-   */
-  function runTriggerSet(
-    elementId: string,
-    triggerType: TriggerType,
-    changedVariableId?: string,
-    specificTriggerId?: string,
-  ) {
-    const element = elements.find((entry) => entry.id === elementId);
-    if (!element) {
-      return;
-    }
-
-    const currentElements = [...elements];
-    const currentVariables = [...variables];
-
-    element.triggers
-      .filter((trigger) => trigger.type === triggerType)
-      .filter((trigger) => (specificTriggerId ? trigger.id === specificTriggerId : true))
-      .filter((trigger) => shouldRunTrigger(trigger, changedVariableId))
-      .forEach((trigger) => {
-        const conditionsPass = evaluateConditions(trigger.conditions, {
-          elements: currentElements,
-          variables: currentVariables,
-        });
-
-        if (!conditionsPass) {
-          if (trigger.hasElse) {
-            (trigger.elseActions ?? []).forEach((action) =>
-              executeAction(action, elementId, currentElements, currentVariables),
-            );
-          }
-          return;
-        }
-
-        trigger.actions.forEach((action) =>
-          executeAction(action, elementId, currentElements, currentVariables),
-        );
-      });
-  }
-
-  function executeAction(
-    action: TriggerAction,
-    sourceElementId: string,
-    currentElements: CanvasElementModel[],
-    currentVariables: GameVariable[],
-  ) {
-    const variable = currentVariables.find((entry) => entry.id === action.targetVariableId);
-    const targetElementId = action.targetElementId ?? sourceElementId;
-    const targetElement = currentElements.find((entry) => entry.id === targetElementId);
-    const actionValue = action.value ?? "";
-
-    switch (action.type) {
-      case "set_variable":
-        if (variable) applyVariableChange(variable.id, coerceValue(variable.type, actionValue));
-        return;
-      case "add_number":
-        if (variable?.type === "number") applyVariableChange(variable.id, Number(variable.value) + Number(actionValue || 0));
-        return;
-      case "subtract_number":
-        if (variable?.type === "number")
-          applyVariableChange(variable.id, Number(variable.value) - Number(actionValue || 0));
-        return;
-      case "toggle_boolean":
-        if (variable?.type === "boolean") applyVariableChange(variable.id, !Boolean(variable.value));
-        return;
-      case "append_string_array":
-        if (variable?.type === "string_array")
-          applyVariableChange(variable.id, [...(variable.value as string[]), actionValue]);
-        return;
-      case "remove_string_array":
-        if (variable?.type === "string_array")
-          applyVariableChange(
-            variable.id,
-            (variable.value as string[]).filter((entry) => entry !== actionValue),
-          );
-        return;
-      case "change_text":
-        if (targetElement) updateElement(targetElement.id, { text: actionValue });
-        return;
-      case "show_element":
-        if (targetElement) updateElement(targetElement.id, { visible: true });
-        return;
-      case "hide_element":
-        if (targetElement) updateElement(targetElement.id, { visible: false });
-        return;
-      case "show_group":
-      case "hide_group":
-        setElements((current) =>
-          current.map((element) =>
-            element.groupId === action.targetGroupId || element.id === action.targetGroupId
-              ? { ...element, visible: action.type === "show_group" }
-              : element,
-          ),
-        );
-        return;
-      case "bring_to_front":
-        if (targetElement) bringToFront(targetElement.id);
-        return;
-      case "send_to_back":
-        if (targetElement) sendToBack(targetElement.id);
-        return;
-      case "start_timer":
-        if (targetElement) {
-          const trigger = targetElement.triggers.find((entry) => entry.type === "timer");
-          if (trigger) startTimer(targetElement.id, trigger.id, trigger.timerIntervalMs ?? 1000);
-        }
-        return;
-      case "stop_timer":
-        if (targetElement) {
-          const trigger = targetElement.triggers.find((entry) => entry.type === "timer");
-          if (trigger) stopTimer(targetElement.id, trigger.id);
-        }
-        return;
-      case "pause_timer":
-        if (targetElement) {
-          const trigger = targetElement.triggers.find((entry) => entry.type === "timer");
-          if (trigger) pauseTimer(targetElement.id, trigger.id);
-        }
-        return;
-      case "resume_timer":
-        if (targetElement) {
-          const trigger = targetElement.triggers.find((entry) => entry.type === "timer");
-          if (trigger) resumeTimer(targetElement.id, trigger.id);
-        }
-    }
-  }
-
-  function coerceValue(type: VariableType, value: string) {
-    if (type === "boolean") return value === "true";
-    if (type === "number") return Number(value || 0);
-    if (type === "string_array") return value.split(",").map((entry) => entry.trim()).filter(Boolean);
-    return value;
-  }
-
   function updateVariable(variableId: string, patch: Partial<GameVariable>) {
-    const currentVariable = variables.find((variable) => variable.id === variableId);
-    if (!currentVariable) {
-      return;
-    }
-
-    const nextVariable = { ...currentVariable, ...patch };
-    if (JSON.stringify(currentVariable) === JSON.stringify(nextVariable)) {
-      return;
-    }
-
-    setVariables((current) =>
-      current.map((variable) => (variable.id === variableId ? nextVariable : variable)),
+    setDocumentVariables((current) =>
+      current.map((variable) =>
+        variable.id === variableId ? { ...variable, ...patch } : variable,
+      ),
     );
-
-    if (JSON.stringify(currentVariable.value) !== JSON.stringify(nextVariable.value)) {
-      variableExecutionGuardRef.current.add(variableId);
-      elements.forEach((element) => runTriggerSet(element.id, "variable_change", variableId));
-      variableExecutionGuardRef.current.delete(variableId);
-    }
   }
 
   function deleteVariable(variableId: string) {
-    setVariables((current) => current.filter((variable) => variable.id !== variableId));
+    setDocumentVariables((current) =>
+      current.filter((variable) => variable.id !== variableId),
+    );
   }
 
-  /**
-   * Deletes one or more elements and clears any selection/runtime state that points at them.
-   * @param elementIds - canvas elements to remove
-   * @returns void
-   */
   function deleteElements(elementIds: string[]) {
     if (elementIds.length === 0) {
       return;
     }
 
-    elementIds.forEach((elementId) => {
-      const element = elements.find((entry) => entry.id === elementId);
-      element?.triggers
-        .filter((trigger) => trigger.type === "timer")
-        .forEach((trigger) => stopTimer(elementId, trigger.id));
-    });
-
-    setElements((current) => current.filter((element) => !elementIds.includes(element.id)));
-    setSelectedElementIds((current) => current.filter((elementId) => !elementIds.includes(elementId)));
+    setDocumentElements((current) =>
+      current.filter((element) => !elementIds.includes(element.id)),
+    );
+    setSelectedElementIds((current) =>
+      current.filter((elementId) => !elementIds.includes(elementId)),
+    );
   }
 
   function bringToFront(elementId: string) {
@@ -618,12 +531,14 @@ export default function App() {
   }
 
   function sendToBack(elementId: string) {
-    setElements((current) => {
+    setDocumentElements((current) => {
       const target = current.find((element) => element.id === elementId);
       if (!target) return current;
 
       const minZIndex = Math.min(...current.map((element) => element.zIndex));
-      return current.map((element) => (element.id === elementId ? { ...element, zIndex: minZIndex - 1 } : element));
+      return current.map((element) =>
+        element.id === elementId ? { ...element, zIndex: minZIndex - 1 } : element,
+      );
     });
   }
 
@@ -653,14 +568,17 @@ export default function App() {
 
   function addTrigger(elementId: string, type: TriggerType) {
     const newTrigger = createDefaultTrigger(makeId("trigger"), type);
-    setElements((current) =>
+    setDocumentElements((current) =>
       current.map((element) =>
         element.id === elementId
           ? {
               ...element,
               triggers:
                 type === "timer"
-                  ? [...element.triggers.filter((trigger) => trigger.type !== "timer"), newTrigger]
+                  ? [
+                      ...element.triggers.filter((trigger) => trigger.type !== "timer"),
+                      newTrigger,
+                    ]
                   : [...element.triggers, newTrigger],
             }
           : element,
@@ -672,8 +590,12 @@ export default function App() {
     }));
   }
 
-  function updateTrigger(elementId: string, triggerId: string, patch: Partial<TriggerDefinition>) {
-    setElements((current) =>
+  function updateTrigger(
+    elementId: string,
+    triggerId: string,
+    patch: Partial<TriggerDefinition>,
+  ) {
+    setDocumentElements((current) =>
       current.map((element) =>
         element.id === elementId
           ? {
@@ -688,8 +610,7 @@ export default function App() {
   }
 
   function deleteTrigger(elementId: string, triggerId: string) {
-    stopTimer(elementId, triggerId);
-    setElements((current) =>
+    setDocumentElements((current) =>
       current.map((element) =>
         element.id === elementId
           ? {
@@ -708,7 +629,7 @@ export default function App() {
       value: "1",
     };
 
-    setElements((current) =>
+    setDocumentElements((current) =>
       current.map((element) =>
         element.id === elementId
           ? {
@@ -717,9 +638,12 @@ export default function App() {
                 trigger.id === triggerId
                   ? {
                       ...trigger,
-                      actions: branch === "then" ? [...trigger.actions, action] : trigger.actions,
+                      actions:
+                        branch === "then" ? [...trigger.actions, action] : trigger.actions,
                       elseActions:
-                        branch === "else" ? [...(trigger.elseActions ?? []), action] : trigger.elseActions,
+                        branch === "else"
+                          ? [...(trigger.elseActions ?? []), action]
+                          : trigger.elseActions,
                     }
                   : trigger,
               ),
@@ -736,7 +660,7 @@ export default function App() {
     patch: Partial<TriggerAction>,
     branch: "then" | "else" = "then",
   ) {
-    setElements((current) =>
+    setDocumentElements((current) =>
       current.map((element) =>
         element.id === elementId
           ? {
@@ -772,7 +696,7 @@ export default function App() {
     actionId: string,
     branch: "then" | "else" = "then",
   ) {
-    setElements((current) =>
+    setDocumentElements((current) =>
       current.map((element) =>
         element.id === elementId
           ? {
@@ -787,7 +711,9 @@ export default function App() {
                           : trigger.actions,
                       elseActions:
                         branch === "else"
-                          ? (trigger.elseActions ?? []).filter((action) => action.id !== actionId)
+                          ? (trigger.elseActions ?? []).filter(
+                              (action) => action.id !== actionId,
+                            )
                           : trigger.elseActions,
                     }
                   : trigger,
@@ -807,7 +733,7 @@ export default function App() {
       join: "and",
     };
 
-    setElements((current) =>
+    setDocumentElements((current) =>
       current.map((element) =>
         element.id === elementId
           ? {
@@ -829,7 +755,7 @@ export default function App() {
     conditionId: string,
     patch: Partial<Condition>,
   ) {
-    setElements((current) =>
+    setDocumentElements((current) =>
       current.map((element) =>
         element.id === elementId
           ? {
@@ -839,7 +765,9 @@ export default function App() {
                   ? {
                       ...trigger,
                       conditions: trigger.conditions.map((condition) =>
-                        condition.id === conditionId ? { ...condition, ...patch } : condition,
+                        condition.id === conditionId
+                          ? { ...condition, ...patch }
+                          : condition,
                       ),
                     }
                   : trigger,
@@ -851,7 +779,7 @@ export default function App() {
   }
 
   function deleteCondition(elementId: string, triggerId: string, conditionId: string) {
-    setElements((current) =>
+    setDocumentElements((current) =>
       current.map((element) =>
         element.id === elementId
           ? {
@@ -860,7 +788,9 @@ export default function App() {
                 trigger.id === triggerId
                   ? {
                       ...trigger,
-                      conditions: trigger.conditions.filter((condition) => condition.id !== conditionId),
+                      conditions: trigger.conditions.filter(
+                        (condition) => condition.id !== conditionId,
+                      ),
                     }
                   : trigger,
               ),
@@ -868,6 +798,252 @@ export default function App() {
           : element,
       ),
     );
+  }
+
+  function updateDraftElement(
+    draft: RuntimeDraft,
+    elementId: string,
+    patch: Partial<CanvasElementModel>,
+  ) {
+    draft.elements = draft.elements.map((element) =>
+      element.id === elementId ? clampElementToStage({ ...element, ...patch }) : element,
+    );
+  }
+
+  function bringDraftElementToFront(draft: RuntimeDraft, elementId: string) {
+    const maxZIndex = Math.max(0, ...draft.elements.map((element) => element.zIndex));
+    updateDraftElement(draft, elementId, { zIndex: maxZIndex + 1 });
+  }
+
+  function sendDraftElementToBack(draft: RuntimeDraft, elementId: string) {
+    const minZIndex = Math.min(...draft.elements.map((element) => element.zIndex));
+    updateDraftElement(draft, elementId, { zIndex: minZIndex - 1 });
+  }
+
+  function coerceValue(type: VariableType, value: string): PrimitiveValue {
+    if (type === "boolean") return value === "true";
+    if (type === "number") return Number(value || 0);
+    if (type === "string_array") {
+      return value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    }
+    return value;
+  }
+
+  function applyRuntimeVariableChange(
+    variableId: string,
+    nextValue: PrimitiveValue,
+    draft: RuntimeDraft,
+    variableGuard: Set<string>,
+  ) {
+    const variable = draft.variables.find((entry) => entry.id === variableId);
+    if (!variable || valuesMatch(variable.value, nextValue)) {
+      return;
+    }
+
+    draft.variables = draft.variables.map((entry) =>
+      entry.id === variableId
+        ? { ...entry, value: clonePrimitiveValue(nextValue) }
+        : entry,
+    );
+
+    if (variableGuard.has(variableId)) {
+      return;
+    }
+
+    variableGuard.add(variableId);
+    draft.elements.forEach((element) => {
+      runRuntimeTriggerSet(
+        element.id,
+        "variable_change",
+        variableId,
+        undefined,
+        draft,
+        variableGuard,
+      );
+    });
+    variableGuard.delete(variableId);
+  }
+
+  function executeRuntimeAction(
+    action: TriggerAction,
+    sourceElementId: string,
+    draft: RuntimeDraft,
+    variableGuard: Set<string>,
+  ) {
+    const variable = draft.variables.find((entry) => entry.id === action.targetVariableId);
+    const targetElementId = action.targetElementId ?? sourceElementId;
+    const targetElement = draft.elements.find((entry) => entry.id === targetElementId);
+    const actionValue = action.value ?? "";
+
+    switch (action.type) {
+      case "set_variable":
+        if (variable) {
+          applyRuntimeVariableChange(
+            variable.id,
+            coerceValue(variable.type, actionValue),
+            draft,
+            variableGuard,
+          );
+        }
+        return;
+      case "add_number":
+        if (variable?.type === "number") {
+          applyRuntimeVariableChange(
+            variable.id,
+            Number(variable.value) + Number(actionValue || 0),
+            draft,
+            variableGuard,
+          );
+        }
+        return;
+      case "subtract_number":
+        if (variable?.type === "number") {
+          applyRuntimeVariableChange(
+            variable.id,
+            Number(variable.value) - Number(actionValue || 0),
+            draft,
+            variableGuard,
+          );
+        }
+        return;
+      case "toggle_boolean":
+        if (variable?.type === "boolean") {
+          applyRuntimeVariableChange(
+            variable.id,
+            !Boolean(variable.value),
+            draft,
+            variableGuard,
+          );
+        }
+        return;
+      case "append_string_array":
+        if (variable?.type === "string_array") {
+          applyRuntimeVariableChange(
+            variable.id,
+            [...(variable.value as string[]), actionValue],
+            draft,
+            variableGuard,
+          );
+        }
+        return;
+      case "remove_string_array":
+        if (variable?.type === "string_array") {
+          applyRuntimeVariableChange(
+            variable.id,
+            (variable.value as string[]).filter((entry) => entry !== actionValue),
+            draft,
+            variableGuard,
+          );
+        }
+        return;
+      case "change_text":
+        if (targetElement) updateDraftElement(draft, targetElement.id, { text: actionValue });
+        return;
+      case "show_element":
+        if (targetElement) updateDraftElement(draft, targetElement.id, { visible: true });
+        return;
+      case "hide_element":
+        if (targetElement) updateDraftElement(draft, targetElement.id, { visible: false });
+        return;
+      case "show_group":
+      case "hide_group":
+        draft.elements = draft.elements.map((element) =>
+          element.groupId === action.targetGroupId || element.id === action.targetGroupId
+            ? { ...element, visible: action.type === "show_group" }
+            : element,
+        );
+        return;
+      case "bring_to_front":
+        if (targetElement) bringDraftElementToFront(draft, targetElement.id);
+        return;
+      case "send_to_back":
+        if (targetElement) sendDraftElementToBack(draft, targetElement.id);
+        return;
+      case "start_timer":
+        if (targetElement) {
+          const trigger = targetElement.triggers.find((entry) => entry.type === "timer");
+          if (trigger) {
+            startTimer(targetElement.id, trigger.id, trigger.timerIntervalMs ?? 1000);
+          }
+        }
+        return;
+      case "stop_timer":
+        if (targetElement) {
+          const trigger = targetElement.triggers.find((entry) => entry.type === "timer");
+          if (trigger) {
+            stopTimer(targetElement.id, trigger.id);
+          }
+        }
+        return;
+      case "pause_timer":
+        if (targetElement) {
+          const trigger = targetElement.triggers.find((entry) => entry.type === "timer");
+          if (trigger) {
+            pauseTimer(targetElement.id, trigger.id);
+          }
+        }
+        return;
+      case "resume_timer":
+        if (targetElement) {
+          const trigger = targetElement.triggers.find((entry) => entry.type === "timer");
+          if (trigger) {
+            resumeTimer(targetElement.id, trigger.id);
+          }
+        }
+    }
+  }
+
+  function runRuntimeTriggerSet(
+    elementId: string,
+    triggerType: TriggerType,
+    changedVariableId?: string,
+    specificTriggerId?: string,
+    existingDraft?: RuntimeDraft,
+    variableGuard: Set<string> = new Set<string>(),
+  ) {
+    const draft =
+      existingDraft ??
+      {
+        elements: cloneElements(runtimeElementsRef.current),
+        variables: cloneVariables(runtimeVariablesRef.current),
+      };
+    const element = draft.elements.find((entry) => entry.id === elementId);
+    if (!element) {
+      return;
+    }
+
+    const matchingTriggers = element.triggers
+      .filter((trigger) => trigger.type === triggerType)
+      .filter((trigger) => (specificTriggerId ? trigger.id === specificTriggerId : true))
+      .filter((trigger) => shouldRunTrigger(trigger, changedVariableId));
+
+    if (matchingTriggers.length === 0) {
+      return;
+    }
+
+    matchingTriggers.forEach((trigger) => {
+      const conditionsPass = evaluateConditions(trigger.conditions, {
+        elements: draft.elements,
+        variables: draft.variables,
+      });
+
+      const branchActions = conditionsPass
+        ? trigger.actions
+        : trigger.hasElse
+          ? trigger.elseActions ?? []
+          : [];
+
+      branchActions.forEach((action) =>
+        executeRuntimeAction(action, elementId, draft, variableGuard),
+      );
+    });
+
+    if (!existingDraft) {
+      commitRuntime(draft.elements, draft.variables);
+    }
   }
 
   function beginSelection() {
@@ -880,10 +1056,6 @@ export default function App() {
     };
   }
 
-  /**
-   * Converts a visible viewport center into world coordinates for spawn placement.
-   * @returns world position close to the middle of the current view
-   */
   function getViewportCenterWorldPoint() {
     return {
       x: viewportSize.width / 2 - 90,
@@ -891,7 +1063,14 @@ export default function App() {
     };
   }
 
-  function handleCanvasPointerDown(point: WorldPoint, event: React.PointerEvent<HTMLDivElement>) {
+  function handleCanvasPointerDown(
+    point: WorldPoint,
+    event: React.PointerEvent<HTMLDivElement>,
+  ) {
+    if (editorMode !== "edit") {
+      return;
+    }
+
     const target = event.target as HTMLElement;
     if (target.closest(".canvas-element")) {
       return;
@@ -911,13 +1090,16 @@ export default function App() {
     setSelectionBox({ x: point.x, y: point.y, width: 0, height: 0 });
   }
 
-  function handleCanvasPointerMove(point: WorldPoint, event: React.PointerEvent<HTMLDivElement>) {
-    const dragState = dragStateRef.current;
-    if (!dragState) {
+  function handleCanvasPointerMove(
+    point: WorldPoint,
+    _event: React.PointerEvent<HTMLDivElement>,
+  ) {
+    if (editorMode !== "edit") {
       return;
     }
 
-    if (dragState.mode !== "selection") {
+    const dragState = dragStateRef.current;
+    if (!dragState || dragState.mode !== "selection") {
       return;
     }
 
@@ -930,13 +1112,23 @@ export default function App() {
     });
   }
 
-  function handleCanvasPointerUp(_point: WorldPoint, _event: React.PointerEvent<HTMLDivElement>) {
+  function handleCanvasPointerUp(
+    _point: WorldPoint,
+    _event: React.PointerEvent<HTMLDivElement>,
+  ) {
+    if (editorMode !== "edit") {
+      return;
+    }
+
     if (selectionBox) {
-      const selected = elements
+      const selected = documentElements
         .filter((element) => {
-          const withinX = element.x + element.width >= selectionBox.x && element.x <= selectionBox.x + selectionBox.width;
+          const withinX =
+            element.x + element.width >= selectionBox.x &&
+            element.x <= selectionBox.x + selectionBox.width;
           const withinY =
-            element.y + element.height >= selectionBox.y && element.y <= selectionBox.y + selectionBox.height;
+            element.y + element.height >= selectionBox.y &&
+            element.y <= selectionBox.y + selectionBox.height;
           return withinX && withinY;
         })
         .map((element) => element.id);
@@ -956,12 +1148,15 @@ export default function App() {
     point: WorldPoint,
     event: React.PointerEvent<HTMLDivElement>,
   ) {
-    const element = elements.find((entry) => entry.id === elementId);
+    if (editorMode !== "edit") {
+      return;
+    }
+
     if (event.shiftKey) {
       return;
     }
 
-    if (element?.type !== "button" && !selectedElementIds.includes(elementId)) {
+    if (!selectedElementIds.includes(elementId)) {
       setSelectedElementIds([elementId]);
       setPanelVisibility((current) => ({
         ...current,
@@ -971,10 +1166,11 @@ export default function App() {
     }
 
     event.currentTarget.setPointerCapture(event.pointerId);
-    const shouldMoveGroup = selectedElementIds.includes(elementId) && selectedElementIds.length > 1;
+    const shouldMoveGroup =
+      selectedElementIds.includes(elementId) && selectedElementIds.length > 1;
     const movingIds = shouldMoveGroup ? selectedElementIds : [elementId];
     const originalPositions = Object.fromEntries(
-      elements
+      documentElements
         .filter((element) => movingIds.includes(element.id))
         .map((element) => [element.id, { x: element.x, y: element.y }]),
     );
@@ -989,7 +1185,14 @@ export default function App() {
     };
   }
 
-  function handleElementPointerMove(point: WorldPoint, _event: React.PointerEvent<HTMLDivElement>) {
+  function handleElementPointerMove(
+    point: WorldPoint,
+    _event: React.PointerEvent<HTMLDivElement>,
+  ) {
+    if (editorMode !== "edit") {
+      return;
+    }
+
     const dragState = dragStateRef.current;
     if (!dragState || dragState.mode !== "elements") {
       return;
@@ -1001,7 +1204,7 @@ export default function App() {
       dragStateRef.current = { ...dragState, moved: true };
     }
 
-    setElements((current) =>
+    setDocumentElements((current) =>
       current.map((element) => {
         const original = dragState.originalPositions[element.id];
         if (!original) {
@@ -1022,12 +1225,16 @@ export default function App() {
     _point: WorldPoint,
     _event: React.PointerEvent<HTMLDivElement>,
   ) {
+    if (editorMode !== "edit") {
+      return;
+    }
+
     if (dragStateRef.current?.mode === "elements") {
       if (dragStateRef.current.targetElementId) {
         bringToFront(dragStateRef.current.targetElementId);
       }
-      const moved = dragStateRef.current.moved;
-      if (moved && dragStateRef.current.targetElementId) {
+
+      if (dragStateRef.current.moved) {
         window.setTimeout(() => {
           dragStateRef.current = null;
         }, 0);
@@ -1038,15 +1245,54 @@ export default function App() {
     dragStateRef.current = null;
   }
 
+  function animateButtonPress(event: React.MouseEvent) {
+    const button = (event.currentTarget as HTMLDivElement).querySelector(".canvas-button-el");
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+
+    button.getAnimations().forEach((animation) => animation.cancel());
+    button.animate(
+      [
+        { transform: "scale(1)" },
+        { transform: "scale(0.985)", offset: 0.2 },
+        { transform: "scale(0.958)", offset: 0.52 },
+        { transform: "scale(1.006)", offset: 0.88 },
+        { transform: "scale(1)" },
+      ],
+      {
+        duration: 180,
+        easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+        fill: "none",
+      },
+    );
+  }
+
   function handleElementClick(elementId: string, event: React.MouseEvent) {
     const dragState = dragStateRef.current;
-    const element = elements.find((entry) => entry.id === elementId);
     dragStateRef.current = null;
-    if (!element) return;
+
+    if (editorMode === "preview") {
+      const element = runtimeElementsRef.current.find((entry) => entry.id === elementId);
+      if (!element || element.type !== "button") {
+        return;
+      }
+
+      animateButtonPress(event);
+      runRuntimeTriggerSet(elementId, "click");
+      return;
+    }
+
+    const element = documentElements.find((entry) => entry.id === elementId);
+    if (!element) {
+      return;
+    }
 
     if (event.shiftKey) {
       setSelectedElementIds((current) =>
-        current.includes(elementId) ? current.filter((id) => id !== elementId) : [...current, elementId],
+        current.includes(elementId)
+          ? current.filter((id) => id !== elementId)
+          : [...current, elementId],
       );
       setPanelVisibility((current) => ({
         ...current,
@@ -1059,53 +1305,35 @@ export default function App() {
       return;
     }
 
-    if (element.type !== "button") {
-      setSelectedElementIds([elementId]);
-      setPanelVisibility((current) => ({
-        ...current,
-        right: { open: true, minimized: false },
-      }));
-      setSettingsOpen(false);
-    }
-
-    if (element.type === "button") {
-      const button = (event.currentTarget as HTMLDivElement).querySelector(".canvas-button-el");
-      if (button instanceof HTMLButtonElement) {
-        button.getAnimations().forEach((animation) => animation.cancel());
-        button.animate(
-          [
-            { transform: "scale(1)" },
-            { transform: "scale(0.985)", offset: 0.18 },
-            { transform: "scale(0.955)", offset: 0.52 },
-            { transform: "scale(1.004)", offset: 0.88 },
-            { transform: "scale(1)" },
-          ],
-          {
-            duration: 1100,
-            easing: "cubic-bezier(0.19, 1, 0.22, 1)",
-            fill: "none",
-          },
-        );
-      }
-      runTriggerSet(elementId, "click");
-    }
+    setSelectedElementIds([elementId]);
+    setPanelVisibility((current) => ({
+      ...current,
+      right: { open: true, minimized: false },
+    }));
+    setSettingsOpen(false);
   }
 
-  /**
-   * Serializes the editor state to JSON and downloads it as a file.
-   * @returns void
-   */
+  function handleRuntimeInputValueChange(elementId: string, value: string) {
+    commitRuntimeElements(
+      runtimeElementsRef.current.map((element) =>
+        element.id === elementId ? clampElementToStage({ ...element, text: value }) : element,
+      ),
+    );
+  }
+
   function exportDocument() {
     const documentState: AppDocument = {
-      elements,
-      variables,
+      elements: documentElements,
+      variables: documentVariables,
       settings: {
         snapToGrid,
       },
       panelVisibility,
     };
 
-    const blob = new Blob([JSON.stringify(documentState, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify(documentState, null, 2)], {
+      type: "application/json",
+    });
     const url = window.URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -1114,27 +1342,28 @@ export default function App() {
     window.URL.revokeObjectURL(url);
   }
 
-  /**
-   * Loads a saved JSON document into the editor and resets transient runtime state.
-   * @param documentState - parsed save file
-   * @returns void
-   */
   function importDocument(documentState: AppDocument) {
+    const nextSnapToGrid = documentState.settings?.snapToGrid ?? false;
+
     clearAllTimers();
-    setSnapToGrid(documentState.settings?.snapToGrid ?? false);
-    setElements((documentState.elements ?? []).map((element) => clampElementToStage(element)));
-    setVariables(documentState.variables ?? []);
+    setEditorMode("edit");
+    setSnapToGrid(nextSnapToGrid);
+    setDocumentElements(
+      (documentState.elements ?? []).map((element) =>
+        clampElementToStage(cloneElement(element), nextSnapToGrid),
+      ),
+    );
+    setDocumentVariables(cloneVariables(documentState.variables ?? []));
+    commitRuntime([], []);
     setPanelVisibility(documentState.panelVisibility ?? INITIAL_PANEL_VISIBILITY);
     setSelectedElementIds([]);
     setSelectionBox(null);
-    syncCountersFromDocument(documentState.elements ?? [], documentState.variables ?? []);
+    syncCountersFromDocument(
+      documentState.elements ?? [],
+      documentState.variables ?? [],
+    );
   }
 
-  /**
-   * Reads a user-selected JSON file and applies it if the structure is valid enough for v1.
-   * @param event - file input change event
-   * @returns void
-   */
   function handleImportFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) {
@@ -1155,9 +1384,10 @@ export default function App() {
   }
 
   useEffect(() => {
-    /**
-     * Deletes the current selection unless the user is typing in an input or inline text field.
-     */
+    if (editorMode !== "edit") {
+      return;
+    }
+
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key !== "Backspace" && event.key !== "Delete") {
         return;
@@ -1179,10 +1409,18 @@ export default function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedElementIds, elements]);
+  }, [editorMode, selectedElementIds]);
 
   return (
-    <div className={theme === "dark" ? "theme-dark" : ""} style={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <div
+      className={theme === "dark" ? "theme-dark" : ""}
+      style={{
+        height: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
       <input
         ref={importInputRef}
         type="file"
@@ -1191,11 +1429,14 @@ export default function App() {
         onChange={handleImportFile}
       />
 
-      {/* Floating top toolbar */}
       <PanelToggleBar
         panelVisibility={panelVisibility}
         onOpenPanel={(panel) => togglePanel(panel, "open")}
         onCreateVariable={() => createVariable()}
+        mode={editorMode}
+        onEnterPreview={enterPreview}
+        onExitPreview={exitPreview}
+        onResetPreview={() => resetPreview()}
         theme={theme}
         onToggleTheme={() => setTheme((current) => (current === "light" ? "dark" : "light"))}
         visible={topbarVisible}
@@ -1213,8 +1454,17 @@ export default function App() {
           title="Show toolbar"
           id="btn-show-topbar"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M6 9l6 6 6-6"/>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M6 9l6 6 6-6" />
           </svg>
         </button>
       )}
@@ -1222,53 +1472,68 @@ export default function App() {
       <SettingsPanel
         open={settingsOpen && topbarVisible}
         snapToGrid={snapToGrid}
+        disabled={editorMode === "preview"}
         onToggleSnapToGrid={setSnapToGrid}
         onExport={exportDocument}
         onImport={() => importInputRef.current?.click()}
       />
 
-      {/* Main layout row */}
       <div style={{ display: "flex", flex: 1, overflow: "hidden", position: "relative" }}>
-        {/* Left: Variables panel */}
         <VariablesPanel
           panelState={panelVisibility.variables}
-          variables={variables}
+          mode={editorMode}
+          variables={activeVariables}
           onCreateVariable={() => createVariable()}
           onUpdateVariable={updateVariable}
           onDeleteVariable={deleteVariable}
           onClose={() => closePanel("variables")}
         />
 
-        {/* Center: Canvas */}
-        <div ref={canvasViewportRef} style={{ position: "relative", flex: 1, overflow: "hidden" }}>
-          {/* Floating left elements toolbar */}
-          <div style={{
-            position: "absolute",
-            left: 16,
-            top: "50%",
-            transform: "translateY(-50%)",
-            zIndex: 30,
-          }}>
+        <div
+          ref={canvasViewportRef}
+          style={{ position: "relative", flex: 1, overflow: "hidden" }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              left: 16,
+              top: "50%",
+              transform: "translateY(-50%)",
+              zIndex: 30,
+            }}
+          >
             <LeftElementsPanel
               panelState={panelVisibility.left}
               onSpawnElement={(type) => {
+                if (editorMode !== "edit") {
+                  return;
+                }
+
                 const point = getViewportCenterWorldPoint();
                 spawnElement(type, point.x, point.y);
               }}
+              onBeginDrag={(type) => {
+                if (editorMode === "edit") {
+                  setPaletteDragType(type);
+                }
+              }}
+              onEndDrag={() => setPaletteDragType(null)}
+              disabled={editorMode !== "edit"}
               onClose={() => closePanel("left")}
             />
           </div>
 
           <CanvasWorkspace
-            elements={elements}
-            variables={variables}
-            selectedElementIds={selectedElementIds}
-            selectionBox={selectionBox}
+            mode={editorMode}
+            elements={activeElements}
+            variables={activeVariables}
+            selectedElementIds={editorMode === "edit" ? selectedElementIds : []}
+            selectionBox={editorMode === "edit" ? selectionBox : null}
             onCanvasPointerDown={handleCanvasPointerDown}
             onCanvasPointerMove={handleCanvasPointerMove}
             onCanvasPointerUp={handleCanvasPointerUp}
             onDropPaletteItem={(point) => {
-              if (paletteDragType) {
+              if (editorMode === "edit" && paletteDragType) {
                 spawnElement(paletteDragType, point.x, point.y);
                 setPaletteDragType(null);
               }
@@ -1277,16 +1542,23 @@ export default function App() {
             onElementPointerMove={handleElementPointerMove}
             onElementPointerUp={handleElementPointerUp}
             onElementClick={handleElementClick}
-            onInputValueChange={(elementId, value) => updateElement(elementId, { text: value })}
+            onInputValueChange={(elementId, value) => {
+              if (editorMode === "preview") {
+                handleRuntimeInputValueChange(elementId, value);
+                return;
+              }
+
+              updateElement(elementId, { text: value });
+            }}
           />
         </div>
 
-        {/* Right: Inspector panel */}
         <RightInspectorPanel
           panelState={panelVisibility.right}
+          mode={editorMode}
           selectedElement={selectedElement}
-          elements={elements}
-          variables={variables}
+          elements={documentElements}
+          variables={documentVariables}
           onUpdateElement={updateElement}
           onBringToFront={bringToFront}
           onSendToBack={sendToBack}

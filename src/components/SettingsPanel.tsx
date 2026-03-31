@@ -1,6 +1,7 @@
 interface SettingsPanelProps {
   open: boolean;
   snapToGrid: boolean;
+  disabled?: boolean;
   onToggleSnapToGrid: (checked: boolean) => void;
   onExport: () => void;
   onImport: () => void;
@@ -9,6 +10,7 @@ interface SettingsPanelProps {
 export function SettingsPanel({
   open,
   snapToGrid,
+  disabled = false,
   onToggleSnapToGrid,
   onExport,
   onImport,
@@ -38,14 +40,15 @@ export function SettingsPanel({
             checked={snapToGrid}
             onChange={(event) => onToggleSnapToGrid(event.target.checked)}
             id="toggle-snap-grid"
+            disabled={disabled}
           />
         </label>
 
         <div className="settings-actions">
-          <button className="btn" onClick={onExport} id="btn-export">
+          <button className="btn" onClick={onExport} id="btn-export" disabled={disabled}>
             Export project
           </button>
-          <button className="btn" onClick={onImport} id="btn-import">
+          <button className="btn" onClick={onImport} id="btn-import" disabled={disabled}>
             Import project
           </button>
         </div>

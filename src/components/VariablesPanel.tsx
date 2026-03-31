@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { VARIABLE_LABELS } from "../constants";
-import type { GameVariable, PanelState, VariableType } from "../types";
+import type { EditorMode, GameVariable, PanelState, VariableType } from "../types";
 import { SelectField, TextInput } from "./FormControls";
 
 interface VariablesPanelProps {
   panelState: PanelState;
+  mode: EditorMode;
   variables: GameVariable[];
   onCreateVariable: () => void;
   onUpdateVariable: (variableId: string, patch: Partial<GameVariable>) => void;
@@ -21,6 +22,7 @@ const TYPE_COLORS: Record<VariableType, string> = {
 
 export function VariablesPanel({
   panelState,
+  mode,
   variables,
   onCreateVariable,
   onUpdateVariable,
@@ -28,6 +30,7 @@ export function VariablesPanel({
   onClose,
 }: VariablesPanelProps) {
   const [expandedVariableId, setExpandedVariableId] = useState<string | null>(null);
+  const readOnly = mode === "preview";
 
   if (!panelState.open) {
     return null;
@@ -56,12 +59,18 @@ export function VariablesPanel({
 
       <div className="side-panel-body">
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <button className="btn btn-accent" style={{ width: "100%", justifyContent: "center" }} onClick={onCreateVariable} id="btn-new-variable">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-              <path d="M12 5v14M5 12h14"/>
-            </svg>
-            New variable
-          </button>
+          {readOnly ? (
+            <div className="empty-state" style={{ padding: 12 }}>
+              Preview mode is showing live variable values.
+            </div>
+          ) : (
+            <button className="btn btn-accent" style={{ width: "100%", justifyContent: "center" }} onClick={onCreateVariable} id="btn-new-variable">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <path d="M12 5v14M5 12h14"/>
+              </svg>
+              New variable
+            </button>
+          )}
 
           {variables.length === 0 ? (
             <div className="empty-state">
@@ -116,6 +125,7 @@ export function VariablesPanel({
                             label="Name"
                             value={variable.name}
                             onChange={(value) => onUpdateVariable(variable.id, { name: value })}
+                            disabled={readOnly}
                           />
                           <SelectField
                             label="Type"
@@ -135,9 +145,10 @@ export function VariablesPanel({
                                       ? 0
                                       : value === "string"
                                         ? ""
-                                        : [],
+                                : [],
                               });
                             }}
+                            disabled={readOnly}
                           />
                           <TextInput
                             label="Value"
@@ -161,11 +172,13 @@ export function VariablesPanel({
                                         : nextValue,
                               })
                             }
+                            disabled={readOnly}
                           />
                           <button
                             className="btn btn-danger btn-sm"
                             style={{ marginTop: 2 }}
                             onClick={() => onDeleteVariable(variable.id)}
+                            disabled={readOnly}
                           >
                             Delete variable
                           </button>

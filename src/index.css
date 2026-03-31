@@ -173,6 +173,10 @@ body {
   background: var(--bg-input);
   color: var(--text-primary);
 }
+.topbar-btn:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
 .topbar-btn.active {
   background: var(--accent-light);
   color: var(--accent);
@@ -336,6 +340,10 @@ body {
   transform: translateX(18px);
   background: #fff;
 }
+.settings-toggle:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 
 /* ─────────────────────────────────────────── 
    Side panels
@@ -440,6 +448,10 @@ body {
 .elements-tool-btn:hover {
   background: var(--bg-input);
   color: var(--text-primary);
+}
+.elements-tool-btn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
 }
 .elements-tool-btn.active {
   background: var(--accent-light);
@@ -689,7 +701,120 @@ body {
   font-weight: 650;
   letter-spacing: -0.025em;
   color: var(--text-primary);
-  margin-bottom: 14px;
+}
+.inspector-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.inspector-header-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: linear-gradient(180deg, var(--bg-panel-inner), transparent);
+}
+.inspector-element-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.inspector-type-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--accent-light);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.inspector-element-subtitle {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+.inspector-section {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-card);
+  overflow: hidden;
+}
+.inspector-section[open] {
+  box-shadow: var(--shadow-sm);
+}
+.inspector-section-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.inspector-section-toggle::-webkit-details-marker {
+  display: none;
+}
+.inspector-section-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.inspector-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-tertiary);
+}
+.inspector-section-description {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+.inspector-section-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  color: var(--text-tertiary);
+  background: var(--bg-panel-inner);
+  transition: transform 0.16s ease, color 0.16s ease, background 0.16s ease;
+  flex-shrink: 0;
+}
+.inspector-section[open] .inspector-section-chevron {
+  transform: rotate(180deg);
+  color: var(--text-primary);
+}
+.inspector-section-toggle:hover .inspector-section-chevron {
+  background: var(--bg-card-hover);
+}
+.inspector-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border-top: 1px solid var(--border);
+}
+.inspector-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.inspector-actions {
+  display: flex;
+  gap: 6px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
 }
 
 /* ─────────────────────────────────────────── 
@@ -727,6 +852,10 @@ body {
   border-color: var(--accent);
   background: var(--bg-input-focus);
   box-shadow: var(--shadow-glow);
+}
+.field-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 .field-input::placeholder {
   color: var(--text-tertiary);
@@ -780,6 +909,10 @@ select.field-input {
   transform: translateX(14px);
   background: #fff;
 }
+.toggle-shell input[type="checkbox"]:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .toggle-label {
   font-size: 12.5px;
   font-weight: 500;
@@ -811,6 +944,10 @@ select.field-input {
 .btn:hover {
   background: var(--bg-card-hover);
   border-color: var(--border-strong);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .btn.btn-accent {
   background: var(--accent);

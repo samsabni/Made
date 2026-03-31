@@ -11,6 +11,9 @@ import type { ElementType, PanelState } from "../types";
 interface LeftElementsPanelProps {
   panelState: PanelState;
   onSpawnElement: (type: ElementType) => void;
+  onBeginDrag: (type: ElementType) => void;
+  onEndDrag: () => void;
+  disabled?: boolean;
   onClose: () => void;
 }
 
@@ -25,6 +28,9 @@ const ELEMENT_ICONS: Record<ElementType, React.ComponentType<React.ComponentProp
 export function LeftElementsPanel({
   panelState,
   onSpawnElement,
+  onBeginDrag,
+  onEndDrag,
+  disabled = false,
   onClose,
 }: LeftElementsPanelProps) {
   if (!panelState.open) {
@@ -57,6 +63,10 @@ export function LeftElementsPanel({
               aria-label={ELEMENT_LABELS[type]}
               title={ELEMENT_LABELS[type]}
               id={`tool-${type}`}
+              disabled={disabled}
+              draggable={!disabled}
+              onDragStart={() => onBeginDrag(type)}
+              onDragEnd={onEndDrag}
             >
               <Icon className="h-[17px] w-[17px]" />
             </button>

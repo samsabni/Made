@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 interface BaseFieldProps {
   label: string;
   className?: string;
+  disabled?: boolean;
 }
 
 interface TextInputProps extends BaseFieldProps {
@@ -28,6 +29,7 @@ interface ToggleProps {
   label: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
+  disabled?: boolean;
 }
 
 export function Field({ label, className, children }: BaseFieldProps & { children: ReactNode }) {
@@ -39,27 +41,45 @@ export function Field({ label, className, children }: BaseFieldProps & { childre
   );
 }
 
-export function TextInput({ label, value, onChange, type = "text", placeholder, className }: TextInputProps) {
+export function TextInput({
+  label,
+  value,
+  onChange,
+  type = "text",
+  placeholder,
+  className,
+  disabled,
+}: TextInputProps) {
   return (
-    <Field label={label} className={className}>
+    <Field label={label} className={className} disabled={disabled}>
       <input
         className="field-input"
         type={type}
         value={value}
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
+        disabled={disabled}
       />
     </Field>
   );
 }
 
-export function SelectField({ label, value, placeholder, options, onChange, className }: SelectFieldProps) {
+export function SelectField({
+  label,
+  value,
+  placeholder,
+  options,
+  onChange,
+  className,
+  disabled,
+}: SelectFieldProps) {
   return (
-    <Field label={label} className={className}>
+    <Field label={label} className={className} disabled={disabled}>
       <select
         className="field-input"
         value={value ?? ""}
         onChange={(event) => onChange(event.target.value)}
+        disabled={disabled}
       >
         <option value="">{placeholder ?? "Select…"}</option>
         {options.map((option) => (
@@ -72,7 +92,7 @@ export function SelectField({ label, value, placeholder, options, onChange, clas
   );
 }
 
-export function Toggle({ label, checked, onChange }: ToggleProps) {
+export function Toggle({ label, checked, onChange, disabled }: ToggleProps) {
   return (
     <label className="toggle-shell">
       <input
@@ -80,6 +100,7 @@ export function Toggle({ label, checked, onChange }: ToggleProps) {
         type="checkbox"
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
+        disabled={disabled}
       />
       <span className="toggle-label">{label}</span>
     </label>
