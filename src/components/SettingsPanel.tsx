@@ -1,12 +1,15 @@
 import { SelectField } from "./FormControls";
-
-type ThemeMode = "light" | "midnight" | "graphite" | "forest";
+import { THEME_OPTIONS, type ThemeMode } from "../utils/theme";
 
 interface SettingsPanelProps {
   open: boolean;
   theme: ThemeMode;
   snapToGrid: boolean;
   disabled?: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
   onChangeTheme: (theme: ThemeMode) => void;
   onToggleSnapToGrid: (checked: boolean) => void;
   onExport: () => void;
@@ -18,6 +21,10 @@ export function SettingsPanel({
   theme,
   snapToGrid,
   disabled = false,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
   onChangeTheme,
   onToggleSnapToGrid,
   onExport,
@@ -47,12 +54,7 @@ export function SettingsPanel({
             value={theme}
             onChange={(value) => onChangeTheme(value as ThemeMode)}
             disabled={disabled}
-            options={[
-              { value: "light", label: "Light" },
-              { value: "midnight", label: "Midnight" },
-              { value: "graphite", label: "Graphite" },
-              { value: "forest", label: "Forest" },
-            ]}
+            options={THEME_OPTIONS}
           />
         </div>
 
@@ -72,6 +74,12 @@ export function SettingsPanel({
         </label>
 
         <div className="settings-actions">
+          <button className="btn" onClick={onUndo} disabled={disabled || !canUndo}>
+            Undo
+          </button>
+          <button className="btn" onClick={onRedo} disabled={disabled || !canRedo}>
+            Redo
+          </button>
           <button className="btn" onClick={onExport} id="btn-export" disabled={disabled}>
             Export project
           </button>

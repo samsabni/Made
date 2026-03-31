@@ -60,7 +60,7 @@ function getTriggerSummary(trigger: TriggerDefinition) {
     `${actionCount} ${actionCount === 1 ? "action" : "actions"}`,
   ];
 
-  if (trigger.hasElse) {
+  if (elseCount > 0) {
     parts.push(`${elseCount} else`);
   }
 
@@ -163,6 +163,26 @@ function getActionSentence(
   }
 }
 
+function InlineSelect(props: {
+  value?: string;
+  placeholder?: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+  className?: string;
+}) {
+  return <SelectField label="" className={`logic-inline-field ${props.className ?? ""}`} {...props} />;
+}
+
+function InlineTextInput(props: {
+  value: string;
+  onChange: (value: string) => void;
+  type?: "text" | "number" | "color";
+  placeholder?: string;
+  className?: string;
+}) {
+  return <TextInput label="" className={`logic-inline-field ${props.className ?? ""}`} {...props} />;
+}
+
 export function LogicEditor(props: LogicEditorProps) {
   const {
     element,
@@ -239,9 +259,9 @@ export function LogicEditor(props: LogicEditorProps) {
             Remove
           </button>
         </div>
-        <div className="logic-fields-grid">
-          <SelectField
-            label="Action"
+        <div className="logic-sentence-editor">
+          <span className="logic-sentence-prefix">{branch === "then" ? "Then" : "Otherwise"}</span>
+          <InlineSelect
             value={action.type}
             options={Object.entries(ACTION_LABELS).map(([key, label]) => ({
               value: key,
@@ -257,8 +277,7 @@ export function LogicEditor(props: LogicEditorProps) {
             }
           />
           {actionTargetsVariable(action) && (
-            <SelectField
-              label="Variable"
+            <InlineSelect
               value={action.targetVariableId}
               options={variables.map((variable) => ({
                 value: variable.id,
@@ -270,8 +289,7 @@ export function LogicEditor(props: LogicEditorProps) {
             />
           )}
           {actionTargetsElement(action) && (
-            <SelectField
-              label="Element"
+            <InlineSelect
               value={action.targetElementId}
               options={elements.map((entry) => ({
                 value: entry.id,
@@ -283,8 +301,7 @@ export function LogicEditor(props: LogicEditorProps) {
             />
           )}
           {actionTargetsGroup(action) && (
-            <SelectField
-              label="Group"
+            <InlineSelect
               value={action.targetGroupId}
               options={elements
                 .filter((entry) => entry.type === "group")
@@ -298,8 +315,7 @@ export function LogicEditor(props: LogicEditorProps) {
             />
           )}
           {shouldShowActionValueInput(action) ? (
-            <TextInput
-              label="Value"
+            <InlineTextInput
               value={action.value ?? ""}
               onChange={(value) => onUpdateAction(trigger.id, action.id, { value }, branch)}
             />
@@ -369,79 +385,95 @@ export function LogicEditor(props: LogicEditorProps) {
               </summary>
 
               <div className="logic-trigger-body">
-                {trigger.type === "timer" && (
-                  <section className="logic-flat-section">
-                    <div className="logic-flat-header">
-                      <span className="logic-sub-label">Setup</span>
-                      <span className="logic-flat-caption">Timer settings</span>
-                    </div>
-                    <div className="logic-item">
-                      <div className="logic-item-stack">
-                        <TextInput
-                          label="Interval (ms)"
-                          type="number"
-                          value={String(trigger.timerIntervalMs ?? 1000)}
-                          onChange={(value) =>
-                            onUpdateTrigger(trigger.id, {
-                              timerIntervalMs: Number(value || 1000),
-                            })
-                          }
-                        />
-                        <Toggle
-                          label="Auto-start"
-                          checked={Boolean(trigger.timerAutoStart)}
-                          onChange={(checked) =>
-                            onUpdateTrigger(trigger.id, { timerAutoStart: checked })
-                          }
-                        />
-                      </div>
-                    </div>
-                  </section>
-                )}
-
-                {trigger.type === "variable_change" && (
-                  <section className="logic-flat-section">
-                    <div className="logic-flat-header">
-                      <span className="logic-sub-label">Setup</span>
-                      <span className="logic-flat-caption">Variable listening</span>
-                    </div>
-                    <div className="logic-item">
-                      <div className="logic-item-stack">
-                        <SelectField
-                          label="Listen mode"
-                          value={trigger.variableChangeMode ?? "any"}
-                          options={[
-                            { value: "any", label: "Any variable change" },
-                            { value: "specific", label: "Specific variable" },
-                          ]}
-                          onChange={(value) => {
-                            const parsed = value as "any" | "specific";
-                            if (!parsed) return;
-                            onUpdateTrigger(trigger.id, { variableChangeMode: parsed });
-                          }}
-                        />
-                        {trigger.variableChangeMode === "specific" && (
-                          <SelectField
-                            label="Variable"
-                            value={trigger.targetVariableId}
-                            options={variables.map((variable) => ({
-                              value: variable.id,
-                              label: `${variable.name} (${variable.type})`,
-                            }))}
-                            onChange={(value) =>
-                              onUpdateTrigger(trigger.id, { targetVariableId: value })
-                            }
-                          />
-                        )}
-                      </div>
-                    </div>
-                  </section>
-                )}
-
                 <section className="logic-flat-section">
                   <div className="logic-flat-header">
                     <div className="logic-flat-copy">
                       <span className="logic-sub-label">When</span>
+                      <span className="logic-flat-caption">How this trigger starts</span>
+                    </div>
+                  </div>
+                  <div className="logic-item">
+                    <div className="logic-item-stack">
+                      {trigger.type === "click" && (
+                        <div className="logic-sentence-editor">
+                          <span className="logic-sentence-prefix">When</span>
+                          <span className="logic-sentence-text">this element is clicked</span>
+                        </div>
+                      )}
+
+                      {trigger.type === "timer" && (
+                        <>
+                          <div className="logic-sentence-editor">
+                            <span className="logic-sentence-prefix">When</span>
+                            <span className="logic-sentence-text">the timer runs every</span>
+                            <InlineTextInput
+                              type="number"
+                              value={String(trigger.timerIntervalMs ?? 1000)}
+                              className="logic-inline-field-sm"
+                              onChange={(value) =>
+                                onUpdateTrigger(trigger.id, {
+                                  timerIntervalMs: Number(value || 1000),
+                                })
+                              }
+                            />
+                            <span className="logic-sentence-text">ms</span>
+                          </div>
+                          <div className="logic-sentence-meta">
+                            <Toggle
+                              label="Auto-start"
+                              checked={Boolean(trigger.timerAutoStart)}
+                              onChange={(checked) =>
+                                onUpdateTrigger(trigger.id, { timerAutoStart: checked })
+                              }
+                            />
+                          </div>
+                        </>
+                      )}
+
+                      {trigger.type === "variable_change" && (
+                        <div className="logic-sentence-editor">
+                          <span className="logic-sentence-prefix">When</span>
+                          <InlineSelect
+                            value={trigger.variableChangeMode ?? "any"}
+                            className="logic-inline-field-md"
+                            options={[
+                              { value: "any", label: "any variable" },
+                              { value: "specific", label: "a specific variable" },
+                            ]}
+                            onChange={(value) => {
+                              const parsed = value as "any" | "specific";
+                              if (!parsed) return;
+                              onUpdateTrigger(trigger.id, { variableChangeMode: parsed });
+                            }}
+                          />
+                          {trigger.variableChangeMode === "specific" ? (
+                            <>
+                              <span className="logic-sentence-text">changes:</span>
+                              <InlineSelect
+                                value={trigger.targetVariableId}
+                                className="logic-inline-field-lg"
+                                options={variables.map((variable) => ({
+                                  value: variable.id,
+                                  label: `${variable.name} (${variable.type})`,
+                                }))}
+                                onChange={(value) =>
+                                  onUpdateTrigger(trigger.id, { targetVariableId: value })
+                                }
+                              />
+                            </>
+                          ) : (
+                            <span className="logic-sentence-text">changes</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </section>
+
+                <section className="logic-flat-section">
+                  <div className="logic-flat-header">
+                    <div className="logic-flat-copy">
+                      <span className="logic-sub-label">If</span>
                       <span className="logic-flat-caption">
                         {trigger.conditions.length === 0
                           ? "Always runs"
@@ -452,7 +484,7 @@ export function LogicEditor(props: LogicEditorProps) {
                       className="btn btn-ghost btn-xs"
                       onClick={() => onAddCondition(trigger.id)}
                     >
-                      + Add IF
+                      + Add condition
                     </button>
                   </div>
 
@@ -473,52 +505,54 @@ export function LogicEditor(props: LogicEditorProps) {
                                 Remove
                               </button>
                             </div>
-                            <div className="logic-fields-grid">
-                            {index > 0 && (
-                              <SelectField
-                                label="Join"
-                                value={condition.join ?? "and"}
+                            <div className="logic-sentence-editor">
+                              {index > 0 && (
+                                <InlineSelect
+                                  value={condition.join ?? "and"}
+                                  className="logic-inline-field-sm"
+                                  options={[
+                                    { value: "and", label: "AND" },
+                                    { value: "or", label: "OR" },
+                                  ]}
+                                  onChange={(value) =>
+                                    onUpdateCondition(trigger.id, condition.id, {
+                                      join: value as "and" | "or",
+                                    })
+                                  }
+                                />
+                              )}
+                              <InlineTextInput
+                                value={condition.left}
+                                className="logic-inline-field-lg"
+                                placeholder="left value"
+                                onChange={(value) =>
+                                  onUpdateCondition(trigger.id, condition.id, { left: value })
+                                }
+                              />
+                              <InlineSelect
+                                value={condition.operator}
+                                className="logic-inline-field-md"
                                 options={[
-                                  { value: "and", label: "AND" },
-                                  { value: "or", label: "OR" },
+                                  { value: "equals", label: "equals" },
+                                  { value: "not_equals", label: "does not equal" },
+                                  { value: "greater_than", label: "is greater than" },
+                                  { value: "less_than", label: "is less than" },
+                                  { value: "contains", label: "contains" },
                                 ]}
                                 onChange={(value) =>
                                   onUpdateCondition(trigger.id, condition.id, {
-                                    join: value as "and" | "or",
+                                    operator: value as Condition["operator"],
                                   })
                                 }
                               />
-                            )}
-                            <TextInput
-                              label="Left"
-                              value={condition.left}
-                              onChange={(value) =>
-                                onUpdateCondition(trigger.id, condition.id, { left: value })
-                              }
-                            />
-                            <SelectField
-                              label="Operator"
-                              value={condition.operator}
-                              options={[
-                                { value: "equals", label: "Equals" },
-                                { value: "not_equals", label: "Not equals" },
-                                { value: "greater_than", label: "Greater than" },
-                                { value: "less_than", label: "Less than" },
-                                { value: "contains", label: "Contains" },
-                              ]}
-                              onChange={(value) =>
-                                onUpdateCondition(trigger.id, condition.id, {
-                                  operator: value as Condition["operator"],
-                                })
-                              }
-                            />
-                            <TextInput
-                              label="Right"
-                              value={condition.right}
-                              onChange={(value) =>
-                                onUpdateCondition(trigger.id, condition.id, { right: value })
-                              }
-                            />
+                              <InlineTextInput
+                                value={condition.right}
+                                className="logic-inline-field-lg"
+                                placeholder="right value"
+                                onChange={(value) =>
+                                  onUpdateCondition(trigger.id, condition.id, { right: value })
+                                }
+                              />
                             </div>
                           </div>
                         </div>
@@ -541,12 +575,22 @@ export function LogicEditor(props: LogicEditorProps) {
                           : `${trigger.actions.length} ${trigger.actions.length === 1 ? "action" : "actions"}`}
                       </span>
                     </div>
-                    <button
-                      className="btn btn-ghost btn-xs"
-                      onClick={() => onAddAction(trigger.id, "then")}
-                    >
-                      + Add action
-                    </button>
+                    <div className="logic-inline-actions">
+                      {!(trigger.elseActions?.length ?? 0) && (
+                        <button
+                          className="btn btn-ghost btn-xs"
+                          onClick={() => onAddAction(trigger.id, "else")}
+                        >
+                          + Add otherwise action
+                        </button>
+                      )}
+                      <button
+                        className="btn btn-ghost btn-xs"
+                        onClick={() => onAddAction(trigger.id, "then")}
+                      >
+                        + Add action
+                      </button>
+                    </div>
                   </div>
 
                   {trigger.actions.length > 0 ? (
@@ -564,56 +608,37 @@ export function LogicEditor(props: LogicEditorProps) {
                   )}
                 </section>
 
-                <section className="logic-flat-section">
-                  <div className="logic-flat-header">
-                    <div className="logic-flat-copy">
-                      <span className="logic-sub-label">Else</span>
-                      <span className="logic-flat-caption">
-                        {trigger.hasElse
-                          ? `${trigger.elseActions?.length ?? 0} ${trigger.elseActions?.length === 1 ? "action" : "actions"}`
-                          : "Disabled"}
-                      </span>
-                    </div>
-                    <Toggle
-                      label="Enable ELSE"
-                      checked={Boolean(trigger.hasElse)}
-                      onChange={(checked) =>
-                        onUpdateTrigger(trigger.id, {
-                          hasElse: checked,
-                          elseActions: checked ? trigger.elseActions ?? [] : [],
-                        })
-                      }
-                    />
-                  </div>
-
-                  {trigger.hasElse ? (
-                    <>
+                {(trigger.elseActions?.length ?? 0) > 0 && (
+                  <section className="logic-flat-section">
+                    <div className="logic-flat-header">
+                      <div className="logic-flat-copy">
+                        <span className="logic-sub-label">Otherwise</span>
+                        <span className="logic-flat-caption">
+                          {(trigger.elseActions?.length ?? 0)}{" "}
+                          {(trigger.elseActions?.length ?? 0) === 1 ? "action" : "actions"}
+                        </span>
+                      </div>
                       <div className="logic-flat-toolbar">
                         <button
                           className="btn btn-ghost btn-xs"
                           onClick={() => onAddAction(trigger.id, "else")}
                         >
-                          + Add else action
+                          + Add action
                         </button>
                       </div>
-                      {(trigger.elseActions?.length ?? 0) > 0 ? (
-                        <div className="logic-list">
-                          {(trigger.elseActions ?? []).map((action) => (
-                            <div key={action.id} className="logic-item">
-                              <div className="logic-item-stack">
-                                {renderActionFields(trigger, action, "else")}
-                              </div>
-                            </div>
-                          ))}
+                    </div>
+
+                    <div className="logic-list">
+                      {(trigger.elseActions ?? []).map((action) => (
+                        <div key={action.id} className="logic-item">
+                          <div className="logic-item-stack">
+                            {renderActionFields(trigger, action, "else")}
+                          </div>
                         </div>
-                      ) : (
-                        <div className="logic-empty-inline">Else branch is enabled, but empty.</div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="logic-empty-inline">Else branch is disabled.</div>
-                  )}
-                </section>
+                      ))}
+                    </div>
+                  </section>
+                )}
               </div>
             </details>
           ))}
