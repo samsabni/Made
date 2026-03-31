@@ -80,6 +80,8 @@ interface DragSnapshot {
   originalPositions: Record<string, { x: number; y: number }>;
 }
 
+type ThemeMode = "light" | "midnight" | "graphite" | "forest";
+
 const GROUP_DROP_ID_PREFIX = "group-drop:";
 const GROUP_SIDE_PADDING = 20;
 const GROUP_TOP_PADDING = 16;
@@ -129,11 +131,20 @@ function valuesMatch(left: PrimitiveValue, right: PrimitiveValue) {
 }
 
 export default function App() {
-  const [theme, setTheme] = useState<"light" | "dark">(() => {
+  const [theme, setTheme] = useState<ThemeMode>(() => {
     if (typeof window === "undefined") {
       return "light";
     }
-    return window.localStorage.getItem("madegame-theme") === "dark" ? "dark" : "light";
+    const savedTheme = window.localStorage.getItem("madegame-theme");
+    if (
+      savedTheme === "light" ||
+      savedTheme === "midnight" ||
+      savedTheme === "graphite" ||
+      savedTheme === "forest"
+    ) {
+      return savedTheme;
+    }
+    return "light";
   });
   const [editorMode, setEditorMode] = useState<EditorMode>("edit");
   const [documentElements, setDocumentElements] = useState<CanvasElementModel[]>([]);
@@ -207,8 +218,19 @@ export default function App() {
 
   useEffect(() => {
     window.localStorage.setItem("madegame-theme", theme);
-    document.documentElement.classList.toggle("theme-dark", theme === "dark");
-    document.documentElement.style.colorScheme = theme;
+    if (theme !== "light") {
+      window.localStorage.setItem("madegame-last-dark-theme", theme);
+    }
+    const root = document.documentElement;
+    root.classList.remove("theme-midnight", "theme-graphite", "theme-forest");
+    if (theme === "midnight") {
+      root.classList.add("theme-midnight");
+    } else if (theme === "graphite") {
+      root.classList.add("theme-graphite");
+    } else if (theme === "forest") {
+      root.classList.add("theme-forest");
+    }
+    root.style.colorScheme = theme === "light" ? "light" : "dark";
   }, [theme]);
 
   useEffect(() => {
@@ -1850,7 +1872,7 @@ export default function App() {
 
   return (
     <div
-      className={theme === "dark" ? "theme-dark" : ""}
+      className=""
       style={{
         height: "100vh",
         display: "flex",
@@ -1869,13 +1891,10 @@ export default function App() {
       <PanelToggleBar
         panelVisibility={panelVisibility}
         onOpenPanel={(panel) => togglePanel(panel, "open")}
-        onCreateVariable={() => createVariable()}
         mode={editorMode}
         onEnterPreview={enterPreview}
         onExitPreview={exitPreview}
         onResetPreview={() => resetPreview()}
-        theme={theme}
-        onToggleTheme={() => setTheme((current) => (current === "light" ? "dark" : "light"))}
         visible={topbarVisible}
         onHide={() => setTopbarVisible(false)}
         settingsOpen={settingsOpen}
@@ -1908,8 +1927,10 @@ export default function App() {
 
       <SettingsPanel
         open={settingsOpen && topbarVisible}
+        theme={theme}
         snapToGrid={snapToGrid}
         disabled={editorMode === "preview"}
+        onChangeTheme={setTheme}
         onToggleSnapToGrid={setSnapToGrid}
         onExport={exportDocument}
         onImport={() => importInputRef.current?.click()}

@@ -1,7 +1,13 @@
+import { SelectField } from "./FormControls";
+
+type ThemeMode = "light" | "midnight" | "graphite" | "forest";
+
 interface SettingsPanelProps {
   open: boolean;
+  theme: ThemeMode;
   snapToGrid: boolean;
   disabled?: boolean;
+  onChangeTheme: (theme: ThemeMode) => void;
   onToggleSnapToGrid: (checked: boolean) => void;
   onExport: () => void;
   onImport: () => void;
@@ -9,8 +15,10 @@ interface SettingsPanelProps {
 
 export function SettingsPanel({
   open,
+  theme,
   snapToGrid,
   disabled = false,
+  onChangeTheme,
   onToggleSnapToGrid,
   onExport,
   onImport,
@@ -29,6 +37,25 @@ export function SettingsPanel({
         </div>
       </div>
       <div className="settings-popover-body">
+        <div className="settings-row settings-row-stack">
+          <div className="settings-row-copy">
+            <span className="settings-row-title">Theme</span>
+            <span className="settings-row-description">Choose the editor color theme</span>
+          </div>
+          <SelectField
+            label=""
+            value={theme}
+            onChange={(value) => onChangeTheme(value as ThemeMode)}
+            disabled={disabled}
+            options={[
+              { value: "light", label: "Light" },
+              { value: "midnight", label: "Midnight" },
+              { value: "graphite", label: "Graphite" },
+              { value: "forest", label: "Forest" },
+            ]}
+          />
+        </div>
+
         <label className="settings-row">
           <div className="settings-row-copy">
             <span className="settings-row-title">Snap elements to grid</span>
