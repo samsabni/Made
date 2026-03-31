@@ -61,27 +61,22 @@ interface InspectorSectionProps {
   sectionKey: InspectorSectionKey;
   title: string;
   description: string;
+  summary?: string;
   isOpen: boolean;
   onToggle: (sectionKey: InspectorSectionKey, isOpen: boolean) => void;
   children: ReactNode;
 }
 
 type InspectorSectionKey =
-  | "basics"
-  | "typography"
-  | "colors"
-  | "layout"
-  | "organization"
+  | "content"
+  | "placement"
   | "logic";
 
 type InspectorSectionState = Record<InspectorSectionKey, boolean>;
 
 const DEFAULT_INSPECTOR_SECTION_STATE: InspectorSectionState = {
-  basics: true,
-  typography: true,
-  colors: false,
-  layout: true,
-  organization: false,
+  content: true,
+  placement: true,
   logic: false,
 };
 
@@ -89,6 +84,7 @@ function InspectorSection({
   sectionKey,
   title,
   description,
+  summary,
   isOpen,
   onToggle,
   children,
@@ -106,6 +102,7 @@ function InspectorSection({
         <div className="inspector-section-copy">
           <span className="inspector-section-title">{title}</span>
           <span className="inspector-section-description">{description}</span>
+          {summary ? <span className="inspector-section-summary">{summary}</span> : null}
         </div>
         <span className="inspector-section-chevron" aria-hidden="true">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -182,6 +179,44 @@ export function RightInspectorPanel(props: RightInspectorPanelProps) {
     });
   }
 
+  function getContentSummary() {
+    if (!selectedElement) {
+      return "";
+    }
+
+    const fontSize = selectedElement.fontSize ?? (selectedElement.type === "text" ? 20 : 14);
+    const fontWeight =
+      selectedElement.fontWeight ??
+      (selectedElement.type === "text" ? "medium" : "semibold");
+    const source =
+      selectedElement.type === "button"
+        ? selectedElement.textSourceMode === "variable"
+          ? "variable label"
+          : "static label"
+        : "static text";
+
+    return `${source} • ${fontSize}px ${fontWeight}`;
+  }
+
+  function getPlacementSummary() {
+    if (!selectedElement) {
+      return "";
+    }
+
+    return `x:${Math.round(selectedElement.x)} y:${Math.round(selectedElement.y)} • ${Math.round(selectedElement.width)}×${Math.round(selectedElement.height)} • ${selectedElement.visible ? "visible" : "hidden"}`;
+  }
+
+  function getLogicSummary() {
+    if (!selectedElement) {
+      return "";
+    }
+
+    const triggerCount = selectedElement.triggers.length;
+    return triggerCount === 0
+      ? "No triggers"
+      : `${triggerCount} ${triggerCount === 1 ? "trigger" : "triggers"}`;
+  }
+
   if (!panelState.open) {
     return null;
   }
@@ -222,10 +257,11 @@ export function RightInspectorPanel(props: RightInspectorPanelProps) {
             </div>
 
             <InspectorSection
-              sectionKey="basics"
-              title="Basics"
-              description="Name and core content"
-              isOpen={sectionState.basics}
+              sectionKey="content"
+              title="Content"
+              description="Text, typography, and button styling"
+              summary={getContentSummary()}
+              isOpen={sectionState.content}
               onToggle={handleSectionToggle}
             >
               <TextInput
@@ -238,98 +274,84 @@ export function RightInspectorPanel(props: RightInspectorPanelProps) {
                 value={selectedElement.text}
                 onChange={(value) => onUpdateElement(selectedElement.id, { text: value })}
               />
-            </InspectorSection>
 
-            {(selectedElement.type === "button" || selectedElement.type === "text") && (
-              <InspectorSection
-                sectionKey="typography"
-                title="Typography"
-                description="Text source and font styling"
-                isOpen={sectionState.typography}
-                onToggle={handleSectionToggle}
-              >
-                <div className="inspector-grid-2">
-                  <TextInput
-                    type="number"
-                    label="Font size"
-                    value={String(
-                      selectedElement.fontSize ?? (selectedElement.type === "text" ? 20 : 14),
-                    )}
-                    onChange={(value) =>
-                      onUpdateElement(selectedElement.id, {
-                        fontSize: Number(
-                          value || (selectedElement.type === "text" ? 20 : 14),
-                        ),
-                      })
-                    }
-                  />
-                  <SelectField
-                    label="Weight"
-                    value={
-                      selectedElement.fontWeight ??
-                      (selectedElement.type === "text" ? "medium" : "semibold")
-                    }
-                    options={FONT_WEIGHT_OPTIONS}
-                    onChange={(value) =>
-                      onUpdateElement(selectedElement.id, {
-                        fontWeight: value as CanvasElementModel["fontWeight"],
-                      })
-                    }
-                  />
-                </div>
-
-                <Toggle
-                  label="Italic"
-                  checked={Boolean(selectedElement.fontItalic)}
-                  onChange={(checked) =>
-                    onUpdateElement(selectedElement.id, { fontItalic: checked })
-                  }
-                />
-
-                {selectedElement.type === "button" && (
-                  <>
-                    <SelectField
-                      label="Label source"
-                      value={selectedElement.textSourceMode ?? "static"}
-                      options={[
-                        { value: "static", label: "Static text" },
-                        { value: "variable", label: "Variable" },
-                      ]}
+              {(selectedElement.type === "button" || selectedElement.type === "text") && (
+                <>
+                  <div className="inspector-grid-2">
+                    <TextInput
+                      type="number"
+                      label="Font size"
+                      value={String(
+                        selectedElement.fontSize ?? (selectedElement.type === "text" ? 20 : 14),
+                      )}
                       onChange={(value) =>
                         onUpdateElement(selectedElement.id, {
-                          textSourceMode: value as "static" | "variable",
+                          fontSize: Number(
+                            value || (selectedElement.type === "text" ? 20 : 14),
+                          ),
                         })
                       }
                     />
-                    {selectedElement.textSourceMode === "variable" && (
+                    <SelectField
+                      label="Weight"
+                      value={
+                        selectedElement.fontWeight ??
+                        (selectedElement.type === "text" ? "medium" : "semibold")
+                      }
+                      options={FONT_WEIGHT_OPTIONS}
+                      onChange={(value) =>
+                        onUpdateElement(selectedElement.id, {
+                          fontWeight: value as CanvasElementModel["fontWeight"],
+                        })
+                      }
+                    />
+                  </div>
+
+                  <Toggle
+                    label="Italic"
+                    checked={Boolean(selectedElement.fontItalic)}
+                    onChange={(checked) =>
+                      onUpdateElement(selectedElement.id, { fontItalic: checked })
+                    }
+                  />
+
+                  {selectedElement.type === "button" && (
+                    <>
                       <SelectField
-                        label="Label variable"
-                        value={selectedElement.textVariableId}
-                        placeholder="Select string variable"
-                        options={stringVariables.map((variable) => ({
-                          value: variable.id,
-                          label: `${variable.name} (${variable.type})`,
-                        }))}
+                        label="Label source"
+                        value={selectedElement.textSourceMode ?? "static"}
+                        options={[
+                          { value: "static", label: "Static text" },
+                          { value: "variable", label: "Variable" },
+                        ]}
                         onChange={(value) =>
                           onUpdateElement(selectedElement.id, {
-                            textVariableId: value || undefined,
+                            textSourceMode: value as "static" | "variable",
                           })
                         }
                       />
-                    )}
-                  </>
-                )}
-              </InspectorSection>
-            )}
+                      {selectedElement.textSourceMode === "variable" && (
+                        <SelectField
+                          label="Label variable"
+                          value={selectedElement.textVariableId}
+                          placeholder="Select string variable"
+                          options={stringVariables.map((variable) => ({
+                            value: variable.id,
+                            label: `${variable.name} (${variable.type})`,
+                          }))}
+                          onChange={(value) =>
+                            onUpdateElement(selectedElement.id, {
+                              textVariableId: value || undefined,
+                            })
+                          }
+                        />
+                      )}
+                    </>
+                  )}
+                </>
+              )}
 
-            {selectedElement.type === "button" && (
-              <InspectorSection
-                sectionKey="colors"
-                title="Colors"
-                description="Button fill and text color"
-                isOpen={sectionState.colors}
-                onToggle={handleSectionToggle}
-              >
+              {selectedElement.type === "button" && (
                 <div className="inspector-grid-2">
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     <SelectField
@@ -417,49 +439,70 @@ export function RightInspectorPanel(props: RightInspectorPanelProps) {
                     )}
                   </div>
                 </div>
-              </InspectorSection>
-            )}
+              )}
+            </InspectorSection>
 
             <InspectorSection
-              sectionKey="layout"
-              title="Layout"
-              description="Position, size, and visibility"
-              isOpen={sectionState.layout}
+              sectionKey="placement"
+              title="Placement"
+              description="Position, size, visibility, grouping, and layer order"
+              summary={getPlacementSummary()}
+              isOpen={sectionState.placement}
               onToggle={handleSectionToggle}
             >
-              <div className="inspector-grid-2">
-                <TextInput
-                  type="number"
-                  label="X"
-                  value={String(Math.round(selectedElement.x))}
-                  onChange={(value) =>
-                    onUpdateElement(selectedElement.id, { x: Number(value || 0) })
-                  }
-                />
-                <TextInput
-                  type="number"
-                  label="Y"
-                  value={String(Math.round(selectedElement.y))}
-                  onChange={(value) =>
-                    onUpdateElement(selectedElement.id, { y: Number(value || 0) })
-                  }
-                />
-                <TextInput
-                  type="number"
-                  label="Width"
-                  value={String(Math.round(selectedElement.width))}
-                  onChange={(value) =>
-                    onUpdateElement(selectedElement.id, { width: Number(value || 0) })
-                  }
-                />
-                <TextInput
-                  type="number"
-                  label="Height"
-                  value={String(Math.round(selectedElement.height))}
-                  onChange={(value) =>
-                    onUpdateElement(selectedElement.id, { height: Number(value || 0) })
-                  }
-                />
+              <div className="inspector-metrics">
+                <label className="inspector-metric">
+                  <span className="inspector-metric-label">X</span>
+                  <input
+                    className="field-input inspector-metric-input"
+                    type="number"
+                    value={String(Math.round(selectedElement.x))}
+                    onChange={(event) =>
+                      onUpdateElement(selectedElement.id, {
+                        x: Number(event.target.value || 0),
+                      })
+                    }
+                  />
+                </label>
+                <label className="inspector-metric">
+                  <span className="inspector-metric-label">Y</span>
+                  <input
+                    className="field-input inspector-metric-input"
+                    type="number"
+                    value={String(Math.round(selectedElement.y))}
+                    onChange={(event) =>
+                      onUpdateElement(selectedElement.id, {
+                        y: Number(event.target.value || 0),
+                      })
+                    }
+                  />
+                </label>
+                <label className="inspector-metric">
+                  <span className="inspector-metric-label">W</span>
+                  <input
+                    className="field-input inspector-metric-input"
+                    type="number"
+                    value={String(Math.round(selectedElement.width))}
+                    onChange={(event) =>
+                      onUpdateElement(selectedElement.id, {
+                        width: Number(event.target.value || 0),
+                      })
+                    }
+                  />
+                </label>
+                <label className="inspector-metric">
+                  <span className="inspector-metric-label">H</span>
+                  <input
+                    className="field-input inspector-metric-input"
+                    type="number"
+                    value={String(Math.round(selectedElement.height))}
+                    onChange={(event) =>
+                      onUpdateElement(selectedElement.id, {
+                        height: Number(event.target.value || 0),
+                      })
+                    }
+                  />
+                </label>
               </div>
 
               <Toggle
@@ -469,15 +512,6 @@ export function RightInspectorPanel(props: RightInspectorPanelProps) {
                   onUpdateElement(selectedElement.id, { visible: checked })
                 }
               />
-            </InspectorSection>
-
-            <InspectorSection
-              sectionKey="organization"
-              title="Organization"
-              description="Grouping and layer order"
-              isOpen={sectionState.organization}
-              onToggle={handleSectionToggle}
-            >
               <SelectField
                 label="Group"
                 value={selectedElement.groupId}
@@ -522,6 +556,7 @@ export function RightInspectorPanel(props: RightInspectorPanelProps) {
               sectionKey="logic"
               title="Logic"
               description="Triggers, conditions, and actions"
+              summary={getLogicSummary()}
               isOpen={sectionState.logic}
               onToggle={handleSectionToggle}
             >
