@@ -47,6 +47,26 @@ export const ACTION_LABELS: Record<ActionType, string> = {
   resume_timer: "Resume timer",
 };
 
+export const ACTION_OPTIONS: Array<{ value: ActionType; label: string }> = [
+  { value: "show_element", label: "Show element" },
+  { value: "hide_element", label: "Hide element" },
+  { value: "change_text", label: "Change text" },
+  { value: "set_variable", label: "Set variable" },
+  { value: "add_number", label: "Add to number variable" },
+  { value: "subtract_number", label: "Subtract from number variable" },
+  { value: "toggle_boolean", label: "Variables - Toggle boolean" },
+  { value: "append_string_array", label: "Variables - Append string to array" },
+  { value: "remove_string_array", label: "Variables - Remove string from array" },
+  { value: "show_group", label: "Visibility - Show group" },
+  { value: "hide_group", label: "Visibility - Hide group" },
+  { value: "bring_to_front", label: "Layer order - Bring to front" },
+  { value: "send_to_back", label: "Layer order - Send to back" },
+  { value: "start_timer", label: "Timers - Start timer" },
+  { value: "stop_timer", label: "Timers - Stop timer" },
+  { value: "pause_timer", label: "Timers - Pause timer" },
+  { value: "resume_timer", label: "Timers - Resume timer" },
+];
+
 export const NEW_VARIABLE_DEFAULTS: Record<VariableType, PrimitiveFactory> = {
   boolean: () => false,
   number: () => 0,

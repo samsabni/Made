@@ -33,6 +33,22 @@ function resolveValue(rawValue: string, variables: GameVariable[]) {
   return trimmed;
 }
 
+function resolveConditionLeft(condition: Condition, variables: GameVariable[]) {
+  if (condition.leftVariableId) {
+    return variables.find((entry) => entry.id === condition.leftVariableId)?.value;
+  }
+
+  return resolveValue(condition.left, variables);
+}
+
+function resolveConditionRight(condition: Condition, variables: GameVariable[]) {
+  if (condition.rightMode === "variable" && condition.rightVariableId) {
+    return variables.find((entry) => entry.id === condition.rightVariableId)?.value;
+  }
+
+  return resolveValue(condition.right, variables);
+}
+
 /**
  * Evaluates a flat condition list using the row-level join operator.
  * v1 intentionally avoids deep nesting so the result stays readable in the inspector.
@@ -46,8 +62,8 @@ export function evaluateConditions(conditions: Condition[], context: LogicContex
   }
 
   return conditions.reduce<boolean>((currentResult, condition, index) => {
-    const left = resolveValue(condition.left, context.variables);
-    const right = resolveValue(condition.right, context.variables);
+    const left = resolveConditionLeft(condition, context.variables);
+    const right = resolveConditionRight(condition, context.variables);
 
     const nextResult = compare(left, right, condition.operator);
     if (index === 0) {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ACTION_LABELS } from "../constants";
+import { ACTION_LABELS, ACTION_OPTIONS } from "../constants";
 import type {
   CanvasElementModel,
   Condition,
@@ -113,8 +113,11 @@ function getGroupName(groupId: string | undefined, elements: CanvasElementModel[
 
 function getConditionSentence(condition: Condition, index: number) {
   const joinLabel = index > 0 ? `${(condition.join ?? "and").toUpperCase()} ` : "";
-  const left = condition.left.trim() || "left value";
-  const right = condition.right.trim() || "right value";
+  const left = condition.leftVariableId ? "selected variable" : condition.left.trim() || "variable";
+  const right =
+    condition.rightMode === "variable"
+      ? "selected variable"
+      : condition.right.trim() || "value";
   return `${joinLabel}${left} ${getOperatorLabel(condition.operator)} ${right}`;
 }
 
@@ -181,6 +184,13 @@ function InlineTextInput(props: {
   className?: string;
 }) {
   return <TextInput label="" className={`logic-inline-field ${props.className ?? ""}`} {...props} />;
+}
+
+function getVariableOptions(variables: GameVariable[]) {
+  return variables.map((variable) => ({
+    value: variable.id,
+    label: `${variable.name} (${variable.type})`,
+  }));
 }
 
 export function LogicEditor(props: LogicEditorProps) {
@@ -263,10 +273,7 @@ export function LogicEditor(props: LogicEditorProps) {
           <span className="logic-sentence-prefix">{branch === "then" ? "Then" : "Otherwise"}</span>
           <InlineSelect
             value={action.type}
-            options={Object.entries(ACTION_LABELS).map(([key, label]) => ({
-              value: key,
-              label,
-            }))}
+            options={ACTION_OPTIONS}
             onChange={(value) =>
               onUpdateAction(
                 trigger.id,
@@ -341,7 +348,7 @@ export function LogicEditor(props: LogicEditorProps) {
 
       {element.triggers.length === 0 ? (
         <div className="empty-state">
-          No triggers yet.<br />Add one to define behavior.
+          No triggers yet.<br />Add a trigger to decide when this element should react.
         </div>
       ) : (
         <div className="logic-list">
@@ -476,7 +483,7 @@ export function LogicEditor(props: LogicEditorProps) {
                       <span className="logic-sub-label">If</span>
                       <span className="logic-flat-caption">
                         {trigger.conditions.length === 0
-                          ? "Always runs"
+                          ? "Runs every time until you add a condition"
                           : `${trigger.conditions.length} ${trigger.conditions.length === 1 ? "condition" : "conditions"}`}
                       </span>
                     </div>
@@ -521,12 +528,14 @@ export function LogicEditor(props: LogicEditorProps) {
                                   }
                                 />
                               )}
-                              <InlineTextInput
-                                value={condition.left}
+                              <InlineSelect
+                                value={condition.leftVariableId}
                                 className="logic-inline-field-lg"
-                                placeholder="left value"
+                                options={getVariableOptions(variables)}
                                 onChange={(value) =>
-                                  onUpdateCondition(trigger.id, condition.id, { left: value })
+                                  onUpdateCondition(trigger.id, condition.id, {
+                                    leftVariableId: value,
+                                  })
                                 }
                               />
                               <InlineSelect
@@ -545,14 +554,42 @@ export function LogicEditor(props: LogicEditorProps) {
                                   })
                                 }
                               />
-                              <InlineTextInput
-                                value={condition.right}
-                                className="logic-inline-field-lg"
-                                placeholder="right value"
+                              <InlineSelect
+                                value={condition.rightMode ?? "value"}
+                                className="logic-inline-field-sm"
+                                options={[
+                                  { value: "value", label: "Value" },
+                                  { value: "variable", label: "Variable" },
+                                ]}
                                 onChange={(value) =>
-                                  onUpdateCondition(trigger.id, condition.id, { right: value })
+                                  onUpdateCondition(trigger.id, condition.id, {
+                                    rightMode: value as "value" | "variable",
+                                    rightVariableId:
+                                      value === "variable" ? condition.rightVariableId : undefined,
+                                  })
                                 }
                               />
+                              {condition.rightMode === "variable" ? (
+                                <InlineSelect
+                                  value={condition.rightVariableId}
+                                  className="logic-inline-field-lg"
+                                  options={getVariableOptions(variables)}
+                                  onChange={(value) =>
+                                    onUpdateCondition(trigger.id, condition.id, {
+                                      rightVariableId: value,
+                                    })
+                                  }
+                                />
+                              ) : (
+                                <InlineTextInput
+                                  value={condition.right}
+                                  className="logic-inline-field-lg"
+                                  placeholder="value"
+                                  onChange={(value) =>
+                                    onUpdateCondition(trigger.id, condition.id, { right: value })
+                                  }
+                                />
+                              )}
                             </div>
                           </div>
                         </div>
@@ -560,7 +597,7 @@ export function LogicEditor(props: LogicEditorProps) {
                     </div>
                   ) : (
                     <div className="logic-empty-inline">
-                      No conditions. This trigger will run whenever it fires.
+                      No conditions yet. Add one if this should only run in specific cases.
                     </div>
                   )}
                 </section>
@@ -571,7 +608,7 @@ export function LogicEditor(props: LogicEditorProps) {
                       <span className="logic-sub-label">Then</span>
                       <span className="logic-flat-caption">
                         {trigger.actions.length === 0
-                          ? "No actions yet"
+                          ? "Choose what happens next"
                           : `${trigger.actions.length} ${trigger.actions.length === 1 ? "action" : "actions"}`}
                       </span>
                     </div>
@@ -604,7 +641,9 @@ export function LogicEditor(props: LogicEditorProps) {
                       ))}
                     </div>
                   ) : (
-                    <div className="logic-empty-inline">No actions yet.</div>
+                    <div className="logic-empty-inline">
+                      No actions yet. Add an action to choose what happens next.
+                    </div>
                   )}
                 </section>
 

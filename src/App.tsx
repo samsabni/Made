@@ -58,6 +58,7 @@ import {
   type DocumentSnapshot,
   undoDocument,
 } from "./utils/documentState";
+import { getDefaultActionDraft } from "./utils/editorDefaults";
 import { isThemeMode, type ThemeMode } from "./utils/theme";
 import { evaluateConditions, shouldRunTrigger } from "./utils/logic";
 
@@ -1181,11 +1182,16 @@ export default function App() {
   }
 
   function addAction(elementId: string, triggerId: string, branch: "then" | "else" = "then") {
-    const action: TriggerAction = {
-      id: makeId("action"),
-      type: "add_number",
-      value: "1",
-    };
+    const sourceElement = documentElements.find((element) => element.id === elementId);
+    if (!sourceElement) {
+      return;
+    }
+    const action = getDefaultActionDraft(
+      makeId("action"),
+      sourceElement,
+      documentElements,
+      documentVariables,
+    );
 
     commitDocumentChange((current) => ({
       ...current,
@@ -1294,11 +1300,14 @@ export default function App() {
   }
 
   function addCondition(elementId: string, triggerId: string) {
+    const defaultVariableId = documentVariables[0]?.id;
     const condition: Condition = {
       id: makeId("condition"),
-      left: "score",
-      operator: "less_than",
-      right: "10",
+      left: "",
+      leftVariableId: defaultVariableId,
+      operator: "equals",
+      right: "",
+      rightMode: "value",
       join: "and",
     };
 

@@ -266,6 +266,12 @@ body {
   background: var(--bg-input);
   color: var(--text-primary);
 }
+.topbar-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-glow);
+  background: var(--bg-input);
+  color: var(--text-primary);
+}
 .topbar-btn:disabled {
   opacity: 0.48;
   cursor: not-allowed;
@@ -326,6 +332,11 @@ body {
   color: var(--text-primary);
   border-color: var(--border-strong);
   transform: translateX(-50%) translateY(1px);
+}
+.topbar-restore-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-lg), var(--shadow-glow);
+  border-color: var(--accent);
 }
 .settings-popover {
   position: absolute;
@@ -619,6 +630,15 @@ body {
   position: relative;
 }
 .elements-tool-btn:hover {
+  background: var(--bg-input);
+  color: var(--text-primary);
+}
+.elements-tool-btn:focus-visible,
+.elements-close-btn:focus-visible,
+.side-panel-close:focus-visible,
+.logic-trigger-header:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-glow);
   background: var(--bg-input);
   color: var(--text-primary);
 }
@@ -1133,6 +1153,11 @@ body {
   background: var(--bg-input-focus);
   box-shadow: var(--shadow-glow);
 }
+.field-input:focus-visible {
+  border-color: var(--accent);
+  background: var(--bg-input-focus);
+  box-shadow: var(--shadow-glow);
+}
 .field-input:disabled {
   opacity: 0.6;
   cursor: not-allowed;
@@ -1193,6 +1218,11 @@ select.field-input {
   opacity: 0.45;
   cursor: not-allowed;
 }
+.toggle-shell input[type="checkbox"]:focus-visible,
+.settings-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-glow);
+}
 .toggle-label {
   font-size: 12.5px;
   font-weight: 500;
@@ -1224,6 +1254,11 @@ select.field-input {
 .btn:hover {
   background: var(--bg-card-hover);
   border-color: var(--border-strong);
+}
+.btn:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--shadow-glow);
 }
 .btn:disabled {
   opacity: 0.45;

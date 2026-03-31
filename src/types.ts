@@ -42,8 +42,11 @@ export interface GameVariable {
 export interface Condition {
   id: string;
   left: string;
+  leftVariableId?: string;
   operator: ComparisonOperator;
   right: string;
+  rightMode?: "value" | "variable";
+  rightVariableId?: string;
   join?: ConditionJoin;
 }
 
