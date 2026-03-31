@@ -67,6 +67,102 @@ function getTriggerSummary(trigger: TriggerDefinition) {
   return parts.join(" • ");
 }
 
+function getOperatorLabel(operator: Condition["operator"]) {
+  switch (operator) {
+    case "equals":
+      return "equals";
+    case "not_equals":
+      return "does not equal";
+    case "greater_than":
+      return "is greater than";
+    case "less_than":
+      return "is less than";
+    case "contains":
+      return "contains";
+    default:
+      return operator;
+  }
+}
+
+function getVariableName(variableId: string | undefined, variables: GameVariable[]) {
+  if (!variableId) {
+    return "nothing selected";
+  }
+
+  return variables.find((variable) => variable.id === variableId)?.name ?? "missing variable";
+}
+
+function getElementName(elementId: string | undefined, elements: CanvasElementModel[]) {
+  if (!elementId) {
+    return "nothing selected";
+  }
+
+  return elements.find((element) => element.id === elementId)?.name ?? "missing element";
+}
+
+function getGroupName(groupId: string | undefined, elements: CanvasElementModel[]) {
+  if (!groupId) {
+    return "nothing selected";
+  }
+
+  return (
+    elements.find((element) => element.id === groupId && element.type === "group")?.name ??
+    "missing group"
+  );
+}
+
+function getConditionSentence(condition: Condition, index: number) {
+  const joinLabel = index > 0 ? `${(condition.join ?? "and").toUpperCase()} ` : "";
+  const left = condition.left.trim() || "left value";
+  const right = condition.right.trim() || "right value";
+  return `${joinLabel}${left} ${getOperatorLabel(condition.operator)} ${right}`;
+}
+
+function getActionSentence(
+  action: TriggerAction,
+  elements: CanvasElementModel[],
+  variables: GameVariable[],
+) {
+  switch (action.type) {
+    case "set_variable":
+      return `Set ${getVariableName(action.targetVariableId, variables)} to ${action.value || "value"}`;
+    case "add_number":
+      return `Add ${action.value || "value"} to ${getVariableName(action.targetVariableId, variables)}`;
+    case "subtract_number":
+      return `Subtract ${action.value || "value"} from ${getVariableName(action.targetVariableId, variables)}`;
+    case "toggle_boolean":
+      return `Toggle ${getVariableName(action.targetVariableId, variables)}`;
+    case "append_string_array":
+      return `Add ${action.value || "text"} to ${getVariableName(action.targetVariableId, variables)}`;
+    case "remove_string_array":
+      return `Remove ${action.value || "text"} from ${getVariableName(action.targetVariableId, variables)}`;
+    case "change_text":
+      return `Change ${getElementName(action.targetElementId, elements)} text to ${action.value || "value"}`;
+    case "show_element":
+      return `Show ${getElementName(action.targetElementId, elements)}`;
+    case "hide_element":
+      return `Hide ${getElementName(action.targetElementId, elements)}`;
+    case "show_group":
+      return `Show ${getGroupName(action.targetGroupId, elements)}`;
+    case "hide_group":
+      return `Hide ${getGroupName(action.targetGroupId, elements)}`;
+    case "bring_to_front":
+      return `Bring ${getElementName(action.targetElementId, elements)} to front`;
+    case "send_to_back":
+      return `Send ${getElementName(action.targetElementId, elements)} to back`;
+    case "start_timer":
+      return `Start timer on ${getElementName(action.targetElementId, elements)}`;
+    case "stop_timer":
+      return `Stop timer on ${getElementName(action.targetElementId, elements)}`;
+    case "pause_timer":
+      return `Pause timer on ${getElementName(action.targetElementId, elements)}`;
+    case "resume_timer":
+      return `Resume timer on ${getElementName(action.targetElementId, elements)}`;
+    default:
+      return ACTION_LABELS[action.type];
+  }
+}
+
 export function LogicEditor(props: LogicEditorProps) {
   const {
     element,
@@ -131,77 +227,84 @@ export function LogicEditor(props: LogicEditorProps) {
   ) {
     return (
       <>
-        <SelectField
-          label="Action"
-          value={action.type}
-          options={Object.entries(ACTION_LABELS).map(([key, label]) => ({
-            value: key,
-            label,
-          }))}
-          onChange={(value) =>
-            onUpdateAction(
-              trigger.id,
-              action.id,
-              { type: value as TriggerAction["type"] },
-              branch,
-            )
-          }
-        />
-        {actionTargetsVariable(action) && (
+        <div className="logic-row-summary">
+          <span className="logic-row-kicker">{branch === "then" ? "Then" : "Else"}</span>
+          <span className="logic-row-sentence">
+            {getActionSentence(action, elements, variables)}
+          </span>
+          <button
+            className="btn btn-danger btn-xs"
+            onClick={() => onDeleteAction(trigger.id, action.id, branch)}
+          >
+            Remove
+          </button>
+        </div>
+        <div className="logic-fields-grid">
           <SelectField
-            label="Variable"
-            value={action.targetVariableId}
-            options={variables.map((variable) => ({
-              value: variable.id,
-              label: `${variable.name} (${variable.type})`,
+            label="Action"
+            value={action.type}
+            options={Object.entries(ACTION_LABELS).map(([key, label]) => ({
+              value: key,
+              label,
             }))}
             onChange={(value) =>
-              onUpdateAction(trigger.id, action.id, { targetVariableId: value }, branch)
+              onUpdateAction(
+                trigger.id,
+                action.id,
+                { type: value as TriggerAction["type"] },
+                branch,
+              )
             }
           />
-        )}
-        {actionTargetsElement(action) && (
-          <SelectField
-            label="Element"
-            value={action.targetElementId}
-            options={elements.map((entry) => ({
-              value: entry.id,
-              label: `${entry.name} (${entry.type})`,
-            }))}
-            onChange={(value) =>
-              onUpdateAction(trigger.id, action.id, { targetElementId: value }, branch)
-            }
-          />
-        )}
-        {actionTargetsGroup(action) && (
-          <SelectField
-            label="Group"
-            value={action.targetGroupId}
-            options={elements
-              .filter((entry) => entry.type === "group")
-              .map((entry) => ({
+          {actionTargetsVariable(action) && (
+            <SelectField
+              label="Variable"
+              value={action.targetVariableId}
+              options={variables.map((variable) => ({
+                value: variable.id,
+                label: `${variable.name} (${variable.type})`,
+              }))}
+              onChange={(value) =>
+                onUpdateAction(trigger.id, action.id, { targetVariableId: value }, branch)
+              }
+            />
+          )}
+          {actionTargetsElement(action) && (
+            <SelectField
+              label="Element"
+              value={action.targetElementId}
+              options={elements.map((entry) => ({
                 value: entry.id,
                 label: `${entry.name} (${entry.type})`,
               }))}
-            onChange={(value) =>
-              onUpdateAction(trigger.id, action.id, { targetGroupId: value }, branch)
-            }
-          />
-        )}
-        {shouldShowActionValueInput(action) ? (
-          <TextInput
-            label="Value"
-            value={action.value ?? ""}
-            onChange={(value) => onUpdateAction(trigger.id, action.id, { value }, branch)}
-          />
-        ) : null}
-        <button
-          className="btn btn-danger btn-xs"
-          style={{ alignSelf: "flex-start", marginTop: 2 }}
-          onClick={() => onDeleteAction(trigger.id, action.id, branch)}
-        >
-          Remove
-        </button>
+              onChange={(value) =>
+                onUpdateAction(trigger.id, action.id, { targetElementId: value }, branch)
+              }
+            />
+          )}
+          {actionTargetsGroup(action) && (
+            <SelectField
+              label="Group"
+              value={action.targetGroupId}
+              options={elements
+                .filter((entry) => entry.type === "group")
+                .map((entry) => ({
+                  value: entry.id,
+                  label: `${entry.name} (${entry.type})`,
+                }))}
+              onChange={(value) =>
+                onUpdateAction(trigger.id, action.id, { targetGroupId: value }, branch)
+              }
+            />
+          )}
+          {shouldShowActionValueInput(action) ? (
+            <TextInput
+              label="Value"
+              value={action.value ?? ""}
+              onChange={(value) => onUpdateAction(trigger.id, action.id, { value }, branch)}
+            />
+          ) : null}
+        </div>
       </>
     );
   }
@@ -358,6 +461,19 @@ export function LogicEditor(props: LogicEditorProps) {
                       {trigger.conditions.map((condition, index) => (
                         <div key={condition.id} className="logic-item">
                           <div className="logic-item-stack">
+                            <div className="logic-row-summary">
+                              <span className="logic-row-kicker">If</span>
+                              <span className="logic-row-sentence">
+                                {getConditionSentence(condition, index)}
+                              </span>
+                              <button
+                                className="btn btn-danger btn-xs"
+                                onClick={() => onDeleteCondition(trigger.id, condition.id)}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                            <div className="logic-fields-grid">
                             {index > 0 && (
                               <SelectField
                                 label="Join"
@@ -403,13 +519,7 @@ export function LogicEditor(props: LogicEditorProps) {
                                 onUpdateCondition(trigger.id, condition.id, { right: value })
                               }
                             />
-                            <button
-                              className="btn btn-danger btn-xs"
-                              style={{ alignSelf: "flex-start", marginTop: 2 }}
-                              onClick={() => onDeleteCondition(trigger.id, condition.id)}
-                            >
-                              Remove
-                            </button>
+                            </div>
                           </div>
                         </div>
                       ))}

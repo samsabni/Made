@@ -10,6 +10,7 @@ import type {
 export const CANVAS_WIDTH = 2200;
 export const CANVAS_HEIGHT = 1400;
 export const GRID_SIZE = 18;
+export const CANVAS_DROP_ID = "canvas-drop";
 
 export const ELEMENT_LABELS: Record<ElementType, string> = {
   button: "Button",

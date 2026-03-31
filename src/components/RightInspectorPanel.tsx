@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { LogicEditor } from "./LogicEditor";
 import { SelectField, TextInput, Toggle } from "./FormControls";
 import type {
@@ -79,6 +79,9 @@ const DEFAULT_INSPECTOR_SECTION_STATE: InspectorSectionState = {
   placement: true,
   logic: false,
 };
+const DEFAULT_INSPECTOR_WIDTH = 276;
+const MIN_INSPECTOR_WIDTH = 252;
+const MAX_INSPECTOR_WIDTH = 520;
 
 function InspectorSection({
   sectionKey,
@@ -139,9 +142,17 @@ export function RightInspectorPanel(props: RightInspectorPanelProps) {
   } = props;
 
   const stringVariables = variables.filter((variable) => variable.type === "string");
+  const selectedGroupMemberCount =
+    selectedElement?.type === "group"
+      ? elements.filter((element) => element.groupId === selectedElement.id).length
+      : 0;
+  const groupUsesAutoSizing =
+    selectedElement?.type === "group" && selectedGroupMemberCount > 0;
   const [sectionState, setSectionState] = useState<InspectorSectionState>(
     DEFAULT_INSPECTOR_SECTION_STATE,
   );
+  const [panelWidth, setPanelWidth] = useState(DEFAULT_INSPECTOR_WIDTH);
+  const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -163,6 +174,57 @@ export function RightInspectorPanel(props: RightInspectorPanelProps) {
       setSectionState(DEFAULT_INSPECTOR_SECTION_STATE);
     }
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const savedWidth = Number(window.localStorage.getItem("madegame-inspector-width"));
+    if (!Number.isFinite(savedWidth)) {
+      return;
+    }
+
+    setPanelWidth(Math.min(Math.max(savedWidth, MIN_INSPECTOR_WIDTH), MAX_INSPECTOR_WIDTH));
+  }, []);
+
+  useEffect(() => {
+    function handlePointerMove(event: PointerEvent) {
+      const resizeState = resizeStateRef.current;
+      if (!resizeState) {
+        return;
+      }
+
+      const nextWidth = Math.min(
+        Math.max(resizeState.startWidth + (resizeState.startX - event.clientX), MIN_INSPECTOR_WIDTH),
+        MAX_INSPECTOR_WIDTH,
+      );
+      setPanelWidth(nextWidth);
+    }
+
+    function handlePointerUp() {
+      if (!resizeStateRef.current) {
+        return;
+      }
+
+      resizeStateRef.current = null;
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem("madegame-inspector-width", String(panelWidth));
+  }, [panelWidth]);
 
   function handleSectionToggle(sectionKey: InspectorSectionKey, isOpen: boolean) {
     setSectionState((current) => {
@@ -222,7 +284,21 @@ export function RightInspectorPanel(props: RightInspectorPanelProps) {
   }
 
   return (
-    <aside className="side-panel right" style={{ width: 276 }}>
+    <aside className="side-panel right side-panel-resizable" style={{ width: panelWidth }}>
+      <button
+        type="button"
+        className="side-panel-resize-handle"
+        aria-label="Resize inspector"
+        title="Drag to resize"
+        onPointerDown={(event) => {
+          resizeStateRef.current = {
+            startX: event.clientX,
+            startWidth: panelWidth,
+          };
+          event.currentTarget.setPointerCapture(event.pointerId);
+          event.preventDefault();
+        }}
+      />
       <div className="side-panel-header">
         <span className="side-panel-title">Inspector</span>
         <button className="side-panel-close" onClick={onClose} aria-label="Close inspector">
@@ -483,6 +559,7 @@ export function RightInspectorPanel(props: RightInspectorPanelProps) {
                     className="field-input inspector-metric-input"
                     type="number"
                     value={String(Math.round(selectedElement.width))}
+                    disabled={groupUsesAutoSizing}
                     onChange={(event) =>
                       onUpdateElement(selectedElement.id, {
                         width: Number(event.target.value || 0),
@@ -496,6 +573,7 @@ export function RightInspectorPanel(props: RightInspectorPanelProps) {
                     className="field-input inspector-metric-input"
                     type="number"
                     value={String(Math.round(selectedElement.height))}
+                    disabled={groupUsesAutoSizing}
                     onChange={(event) =>
                       onUpdateElement(selectedElement.id, {
                         height: Number(event.target.value || 0),
@@ -505,6 +583,12 @@ export function RightInspectorPanel(props: RightInspectorPanelProps) {
                 </label>
               </div>
 
+              {groupUsesAutoSizing ? (
+                <div className="field-help">
+                  Group size follows its members and updates automatically.
+                </div>
+              ) : null}
+
               <Toggle
                 label="Visible"
                 checked={selectedElement.visible}
@@ -512,20 +596,22 @@ export function RightInspectorPanel(props: RightInspectorPanelProps) {
                   onUpdateElement(selectedElement.id, { visible: checked })
                 }
               />
-              <SelectField
-                label="Group"
-                value={selectedElement.groupId}
-                placeholder="No group"
-                onChange={(value) =>
-                  onUpdateElement(selectedElement.id, { groupId: value || undefined })
-                }
-                options={elements
-                  .filter((entry) => entry.type === "group")
-                  .map((entry) => ({
-                    value: entry.id,
-                    label: `${entry.name} (${entry.type})`,
-                  }))}
-              />
+              {selectedElement.type !== "group" ? (
+                <SelectField
+                  label="Group"
+                  value={selectedElement.groupId}
+                  placeholder="No group"
+                  onChange={(value) =>
+                    onUpdateElement(selectedElement.id, { groupId: value || undefined })
+                  }
+                  options={elements
+                    .filter((entry) => entry.type === "group")
+                    .map((entry) => ({
+                      value: entry.id,
+                      label: `${entry.name} (${entry.type})`,
+                    }))}
+                />
+              ) : null}
 
               <div className="inspector-actions">
                 <button

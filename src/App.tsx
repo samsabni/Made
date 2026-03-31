@@ -1,3 +1,16 @@
+import {
+  DndContext,
+  PointerSensor,
+  pointerWithin,
+  useSensor,
+  useSensors,
+  type CollisionDetection,
+  type DragCancelEvent,
+  type DragEndEvent,
+  type DragMoveEvent,
+  type DragStartEvent,
+  type UniqueIdentifier,
+} from "@dnd-kit/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LeftElementsPanel } from "./components/LeftElementsPanel";
 import { PanelToggleBar } from "./components/PanelToggleBar";
@@ -10,6 +23,7 @@ import {
   type WorldPoint,
 } from "./components/CanvasWorkspace";
 import {
+  CANVAS_DROP_ID,
   createDefaultElement,
   createDefaultTrigger,
   ELEMENT_LABELS,
@@ -51,6 +65,31 @@ interface TimerHandle {
   kind: "interval" | "timeout";
   id: number;
 }
+
+interface ActiveCanvasDrag {
+  activeId: string;
+  activeType: ElementType;
+  movingIds: string[];
+  delta: { x: number; y: number };
+}
+
+interface DragSnapshot {
+  activeId: string;
+  activeType: ElementType;
+  movingIds: string[];
+  originalPositions: Record<string, { x: number; y: number }>;
+}
+
+const GROUP_DROP_ID_PREFIX = "group-drop:";
+const GROUP_SIDE_PADDING = 20;
+const GROUP_TOP_PADDING = 16;
+const GROUP_BOTTOM_PADDING = 18;
+const GROUP_SLOT_GAP = 12;
+const GROUP_MIN_WIDTH = 120;
+const GROUP_MIN_HEIGHT = 80;
+const GROUP_HEADER_HEIGHT = 20;
+const GROUP_HEADER_GAP = 12;
+const DRAG_ACTIVATION_DISTANCE = 4;
 
 const INITIAL_PANEL_VISIBILITY: PanelVisibilityState = {
   left: { open: true, minimized: false },
@@ -114,6 +153,8 @@ export default function App() {
     INITIAL_PANEL_VISIBILITY,
   );
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
+  const [dropTargetGroupId, setDropTargetGroupId] = useState<string | null>(null);
+  const [activeCanvasDrag, setActiveCanvasDrag] = useState<ActiveCanvasDrag | null>(null);
   const [paletteDragType, setPaletteDragType] = useState<ElementType | null>(null);
   const [viewportSize, setViewportSize] = useState({ width: 1040, height: 720 });
   const zIndexRef = useRef(1);
@@ -125,6 +166,8 @@ export default function App() {
     string_array: 0,
   });
   const dragStateRef = useRef<DragState | null>(null);
+  const dragSnapshotRef = useRef<DragSnapshot | null>(null);
+  const suppressElementClickRef = useRef(false);
   const timerHandlesRef = useRef<Record<string, TimerHandle>>({});
   const runtimeTimersRef = useRef<RuntimeTimers>({});
   const runtimeElementsRef = useRef<CanvasElementModel[]>([]);
@@ -140,6 +183,26 @@ export default function App() {
         ? documentElements.find((element) => element.id === selectedElementIds[0]) ?? null
         : null,
     [documentElements, editorMode, selectedElementIds],
+  );
+  const collisionDetectionStrategy = useMemo<CollisionDetection>(
+    () => (args) => {
+      const collisions = pointerWithin(args);
+      const groupCollisions = collisions.filter(
+        (collision) => parseGroupDropId(collision.id) !== null,
+      );
+
+      if (groupCollisions.length > 0) {
+        return groupCollisions;
+      }
+
+      return collisions.filter((collision) => collision.id === CANVAS_DROP_ID);
+    },
+    [],
+  );
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: DRAG_ACTIVATION_DISTANCE },
+    }),
   );
 
   useEffect(() => {
@@ -391,6 +454,190 @@ export default function App() {
     };
   }
 
+  function getGroupedElementIds(groupId: string, elements: CanvasElementModel[]) {
+    return [
+      groupId,
+      ...elements
+        .filter((element) => element.groupId === groupId)
+        .map((element) => element.id),
+    ];
+  }
+
+  function parseGroupDropId(id: UniqueIdentifier | null | undefined) {
+    if (typeof id !== "string" || !id.startsWith(GROUP_DROP_ID_PREFIX)) {
+      return null;
+    }
+
+    return id.slice(GROUP_DROP_ID_PREFIX.length);
+  }
+
+  function buildOriginalPositions(
+    elements: CanvasElementModel[],
+    elementIds: string[],
+  ): Record<string, { x: number; y: number }> {
+    return Object.fromEntries(
+      elements
+        .filter((element) => elementIds.includes(element.id))
+        .map((element) => [element.id, { x: element.x, y: element.y }]),
+    );
+  }
+
+  function constrainDeltaWithinBounds(
+    elements: CanvasElementModel[],
+    originalPositions: Record<string, { x: number; y: number }>,
+    deltaX: number,
+    deltaY: number,
+  ) {
+    const inset = 16;
+    let minDeltaX = -Infinity;
+    let maxDeltaX = Infinity;
+    let minDeltaY = -Infinity;
+    let maxDeltaY = Infinity;
+
+    elements.forEach((element) => {
+      const original = originalPositions[element.id];
+      if (!original) {
+        return;
+      }
+
+      const maxX = Math.max(inset, viewportSize.width - element.width - inset);
+      const maxY = Math.max(inset, viewportSize.height - element.height - inset);
+
+      minDeltaX = Math.max(minDeltaX, inset - original.x);
+      maxDeltaX = Math.min(maxDeltaX, maxX - original.x);
+      minDeltaY = Math.max(minDeltaY, inset - original.y);
+      maxDeltaY = Math.min(maxDeltaY, maxY - original.y);
+    });
+
+    return {
+      deltaX: Math.min(Math.max(deltaX, minDeltaX), maxDeltaX),
+      deltaY: Math.min(Math.max(deltaY, minDeltaY), maxDeltaY),
+    };
+  }
+
+  function rectanglesOverlap(
+    left: { x: number; y: number; width: number; height: number },
+    right: { x: number; y: number; width: number; height: number },
+  ) {
+    return (
+      left.x < right.x + right.width &&
+      left.x + left.width > right.x &&
+      left.y < right.y + right.height &&
+      left.y + left.height > right.y
+    );
+  }
+
+  function isPointInsideRect(
+    point: { x: number; y: number },
+    rect: { x: number; y: number; width: number; height: number },
+  ) {
+    return (
+      point.x >= rect.x &&
+      point.x <= rect.x + rect.width &&
+      point.y >= rect.y &&
+      point.y <= rect.y + rect.height
+    );
+  }
+
+  function isElementCenterInsideGroup(
+    element: CanvasElementModel,
+    group: CanvasElementModel | null | undefined,
+  ) {
+    if (!group) {
+      return false;
+    }
+
+    return isPointInsideRect(
+      {
+        x: element.x + element.width / 2,
+        y: element.y + element.height / 2,
+      },
+      group,
+    );
+  }
+
+  function getGroupLayoutGap(shouldSnap: boolean) {
+    return shouldSnap ? GRID_SIZE : GROUP_SLOT_GAP;
+  }
+
+  function normalizeDocumentElements(
+    elements: CanvasElementModel[],
+    shouldSnap: boolean = snapToGrid,
+  ) {
+    const groupIds = new Set(
+      elements
+        .filter((element) => element.type === "group")
+        .map((element) => element.id),
+    );
+    const sanitizedElements = elements.map((element) =>
+      element.type !== "group" && element.groupId && !groupIds.has(element.groupId)
+        ? { ...element, groupId: undefined }
+        : element,
+    );
+    const updates = new Map<string, CanvasElementModel>();
+
+    sanitizedElements
+      .filter((element) => element.type === "group")
+      .forEach((group) => {
+        const members = sanitizedElements
+          .filter((element) => element.type !== "group" && element.groupId === group.id)
+          .sort(
+            (left, right) =>
+              left.y - right.y || left.x - right.x || left.zIndex - right.zIndex,
+          );
+
+        if (members.length === 0) {
+          return;
+        }
+
+        const inset = 16;
+        const gap = getGroupLayoutGap(shouldSnap);
+        const widestMember = Math.max(...members.map((member) => member.width));
+        const contentHeight =
+          GROUP_HEADER_HEIGHT +
+          GROUP_HEADER_GAP +
+          members.reduce((total, member) => total + member.height, 0) +
+          Math.max(0, members.length - 1) * gap;
+        const desiredWidth = Math.max(widestMember + GROUP_SIDE_PADDING * 2, GROUP_MIN_WIDTH);
+        const desiredHeight = Math.max(
+          GROUP_TOP_PADDING + contentHeight + GROUP_BOTTOM_PADDING,
+          GROUP_MIN_HEIGHT,
+        );
+        const width = Math.min(desiredWidth, Math.max(GROUP_MIN_WIDTH, viewportSize.width - inset * 2));
+        const height = Math.min(
+          desiredHeight,
+          Math.max(GROUP_MIN_HEIGHT, viewportSize.height - inset * 2),
+        );
+        const maxGroupX = Math.max(inset, viewportSize.width - width - inset);
+        const maxGroupY = Math.max(inset, viewportSize.height - height - inset);
+        const groupX = Math.min(Math.max(group.x, inset), maxGroupX);
+        const groupY = Math.min(Math.max(group.y, inset), maxGroupY);
+        let nextY = groupY + GROUP_TOP_PADDING + GROUP_HEADER_HEIGHT + GROUP_HEADER_GAP;
+
+        members.forEach((member) => {
+          const sourceMember = updates.get(member.id) ?? member;
+          const nextMember = {
+            ...sourceMember,
+            x: groupX + GROUP_SIDE_PADDING,
+            y: nextY,
+          };
+
+          updates.set(nextMember.id, nextMember);
+          nextY += sourceMember.height + gap;
+        });
+
+        updates.set(group.id, {
+          ...group,
+          x: groupX,
+          y: groupY,
+          width,
+          height,
+        });
+      });
+
+    return sanitizedElements.map((element) => updates.get(element.id) ?? element);
+  }
+
   function cloneElements(elements: CanvasElementModel[]) {
     return elements.map((element) => cloneElement(element));
   }
@@ -440,6 +687,9 @@ export default function App() {
     setEditorMode("preview");
     setSelectedElementIds([]);
     setSelectionBox(null);
+    dragSnapshotRef.current = null;
+    setActiveCanvasDrag(null);
+    setDropTargetGroupId(null);
     setSettingsOpen(false);
     setPaletteDragType(null);
     setPanelVisibility((current) => ({
@@ -454,6 +704,9 @@ export default function App() {
     commitRuntime([], []);
     setEditorMode("edit");
     setSelectionBox(null);
+    dragSnapshotRef.current = null;
+    setActiveCanvasDrag(null);
+    setDropTargetGroupId(null);
     setPaletteDragType(null);
   }
 
@@ -492,11 +745,52 @@ export default function App() {
   }
 
   function updateElement(elementId: string, patch: Partial<CanvasElementModel>) {
-    setDocumentElements((current) =>
-      current.map((element) =>
-        element.id === elementId ? clampElementToStage({ ...element, ...patch }) : element,
-      ),
-    );
+    setDocumentElements((current) => {
+      const target = current.find((element) => element.id === elementId);
+      if (!target) {
+        return current;
+      }
+
+      if (target.type === "group" && (patch.x !== undefined || patch.y !== undefined)) {
+        const movingIds = getGroupedElementIds(elementId, current);
+        const originalPositions = buildOriginalPositions(current, movingIds);
+        const nextElements = current.map((element) =>
+          element.id === elementId ? { ...element, ...patch } : element,
+        );
+        const constrainedDelta = constrainDeltaWithinBounds(
+          nextElements,
+          originalPositions,
+          (patch.x ?? target.x) - target.x,
+          (patch.y ?? target.y) - target.y,
+        );
+
+        return normalizeDocumentElements(
+          current.map((element) => {
+            if (!movingIds.includes(element.id)) {
+              return element;
+            }
+
+            const original = originalPositions[element.id];
+            if (!original) {
+              return element;
+            }
+
+            return {
+              ...element,
+              ...(element.id === elementId ? patch : {}),
+              x: original.x + constrainedDelta.deltaX,
+              y: original.y + constrainedDelta.deltaY,
+            };
+          }),
+        );
+      }
+
+      return normalizeDocumentElements(
+        current.map((element) =>
+          element.id === elementId ? clampElementToStage({ ...element, ...patch }) : element,
+        ),
+      );
+    });
   }
 
   function updateVariable(variableId: string, patch: Partial<GameVariable>) {
@@ -518,9 +812,23 @@ export default function App() {
       return;
     }
 
-    setDocumentElements((current) =>
-      current.filter((element) => !elementIds.includes(element.id)),
-    );
+    setDocumentElements((current) => {
+      const deletedGroupIds = new Set(
+        current
+          .filter((element) => elementIds.includes(element.id) && element.type === "group")
+          .map((element) => element.id),
+      );
+
+      return normalizeDocumentElements(
+        current
+          .filter((element) => !elementIds.includes(element.id))
+          .map((element) =>
+            element.groupId && deletedGroupIds.has(element.groupId)
+              ? { ...element, groupId: undefined }
+              : element,
+          ),
+      );
+    });
     setSelectedElementIds((current) =>
       current.filter((elementId) => !elementIds.includes(elementId)),
     );
@@ -1079,6 +1387,7 @@ export default function App() {
     event.currentTarget.setPointerCapture(event.pointerId);
     setSelectedElementIds([]);
     setSettingsOpen(false);
+    setDropTargetGroupId(null);
     beginSelection();
     dragStateRef.current = {
       mode: "selection",
@@ -1141,108 +1450,233 @@ export default function App() {
 
     dragStateRef.current = null;
     setSelectionBox(null);
+    setDropTargetGroupId(null);
   }
 
-  function handleElementPointerDown(
-    elementId: string,
-    point: WorldPoint,
-    event: React.PointerEvent<HTMLDivElement>,
-  ) {
+  function suppressNextElementClick() {
+    suppressElementClickRef.current = true;
+    window.setTimeout(() => {
+      suppressElementClickRef.current = false;
+    }, 0);
+  }
+
+  function clearActiveCanvasDrag() {
+    dragSnapshotRef.current = null;
+    setActiveCanvasDrag(null);
+    setDropTargetGroupId(null);
+  }
+
+  function handleDragStart(event: DragStartEvent) {
     if (editorMode !== "edit") {
       return;
     }
 
-    if (event.shiftKey) {
+    const activeId = String(event.active.id);
+    const targetElement = documentElements.find((element) => element.id === activeId);
+    if (!targetElement) {
       return;
     }
 
-    if (!selectedElementIds.includes(elementId)) {
-      setSelectedElementIds([elementId]);
+    setDropTargetGroupId(null);
+    setSelectionBox(null);
+    setSettingsOpen(false);
+
+    if (!selectedElementIds.includes(activeId)) {
+      setSelectedElementIds([activeId]);
       setPanelVisibility((current) => ({
         ...current,
         right: { open: true, minimized: false },
       }));
-      setSettingsOpen(false);
     }
 
-    event.currentTarget.setPointerCapture(event.pointerId);
     const shouldMoveGroup =
-      selectedElementIds.includes(elementId) && selectedElementIds.length > 1;
-    const movingIds = shouldMoveGroup ? selectedElementIds : [elementId];
-    const originalPositions = Object.fromEntries(
-      documentElements
-        .filter((element) => movingIds.includes(element.id))
-        .map((element) => [element.id, { x: element.x, y: element.y }]),
-    );
+      selectedElementIds.includes(activeId) &&
+      selectedElementIds.length > 1 &&
+      targetElement.type !== "group";
+    const movingIds = shouldMoveGroup
+      ? selectedElementIds
+      : targetElement.type === "group"
+        ? getGroupedElementIds(activeId, documentElements)
+        : [activeId];
+    const originalPositions = buildOriginalPositions(documentElements, movingIds);
 
-    dragStateRef.current = {
-      mode: "elements",
-      startX: point.x,
-      startY: point.y,
-      moved: false,
-      targetElementId: elementId,
+    dragSnapshotRef.current = {
+      activeId,
+      activeType: targetElement.type,
+      movingIds,
       originalPositions,
     };
+    setActiveCanvasDrag({
+      activeId,
+      activeType: targetElement.type,
+      movingIds,
+      delta: { x: 0, y: 0 },
+    });
   }
 
-  function handleElementPointerMove(
-    point: WorldPoint,
-    _event: React.PointerEvent<HTMLDivElement>,
-  ) {
+  function handleDragMove(event: DragMoveEvent) {
     if (editorMode !== "edit") {
       return;
     }
 
-    const dragState = dragStateRef.current;
-    if (!dragState || dragState.mode !== "elements") {
+    const dragSnapshot = dragSnapshotRef.current;
+    if (!dragSnapshot) {
       return;
     }
 
-    const deltaX = point.x - dragState.startX;
-    const deltaY = point.y - dragState.startY;
-    if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
-      dragStateRef.current = { ...dragState, moved: true };
+    const constrainedDelta = constrainDeltaWithinBounds(
+      documentElements,
+      dragSnapshot.originalPositions,
+      event.delta.x,
+      event.delta.y,
+    );
+    let nextDropTarget: string | null = null;
+
+    if (dragSnapshot.activeType !== "group" && dragSnapshot.movingIds.length === 1) {
+      const previewElement = documentElements.find(
+        (element) => element.id === dragSnapshot.activeId,
+      );
+      const projectedElement = previewElement
+        ? {
+            ...previewElement,
+            x: previewElement.x + constrainedDelta.deltaX,
+            y: previewElement.y + constrainedDelta.deltaY,
+          }
+        : null;
+      const overGroupId = parseGroupDropId(event.over?.id);
+      const currentGroup =
+        previewElement?.groupId
+          ? documentElements.find(
+              (element) =>
+                element.id === previewElement.groupId && element.type === "group",
+            ) ?? null
+          : null;
+
+      if (overGroupId) {
+        const overGroup = documentElements.find(
+          (element) => element.id === overGroupId && element.type === "group",
+        );
+        if (projectedElement && isElementCenterInsideGroup(projectedElement, overGroup)) {
+          nextDropTarget = overGroupId;
+        }
+      } else if (
+        projectedElement &&
+        currentGroup &&
+        isElementCenterInsideGroup(projectedElement, currentGroup)
+      ) {
+        nextDropTarget = currentGroup.id;
+      }
     }
 
-    setDocumentElements((current) =>
-      current.map((element) => {
-        const original = dragState.originalPositions[element.id];
+    setActiveCanvasDrag({
+      activeId: dragSnapshot.activeId,
+      activeType: dragSnapshot.activeType,
+      movingIds: dragSnapshot.movingIds,
+      delta: {
+        x: constrainedDelta.deltaX,
+        y: constrainedDelta.deltaY,
+      },
+    });
+    setDropTargetGroupId(nextDropTarget);
+  }
+
+  function handleDragCancel(_event: DragCancelEvent) {
+    if (editorMode !== "edit") {
+      return;
+    }
+
+    clearActiveCanvasDrag();
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    if (editorMode !== "edit") {
+      return;
+    }
+
+    const dragSnapshot = dragSnapshotRef.current;
+    if (!dragSnapshot) {
+      clearActiveCanvasDrag();
+      return;
+    }
+
+    const constrainedDelta = constrainDeltaWithinBounds(
+      documentElements,
+      dragSnapshot.originalPositions,
+      event.delta.x,
+      event.delta.y,
+    );
+    const dropId = event.over?.id;
+    const rawDropGroupId =
+      dragSnapshot.activeType !== "group" && dragSnapshot.movingIds.length === 1
+        ? parseGroupDropId(dropId)
+        : null;
+    const droppedOnCanvas = dropId === CANVAS_DROP_ID;
+
+    suppressNextElementClick();
+    bringToFront(dragSnapshot.activeId);
+
+    setDocumentElements((current) => {
+      let nextElements = current.map((element) => {
+        const original = dragSnapshot.originalPositions[element.id];
         if (!original) {
           return element;
         }
 
-        return clampElementToStage({
+        return {
           ...element,
-          x: original.x + deltaX,
-          y: original.y + deltaY,
-        });
-      }),
-    );
-  }
+          x: original.x + constrainedDelta.deltaX,
+          y: original.y + constrainedDelta.deltaY,
+        };
+      });
 
-  function handleElementPointerUp(
-    _elementId: string,
-    _point: WorldPoint,
-    _event: React.PointerEvent<HTMLDivElement>,
-  ) {
-    if (editorMode !== "edit") {
-      return;
-    }
-
-    if (dragStateRef.current?.mode === "elements") {
-      if (dragStateRef.current.targetElementId) {
-        bringToFront(dragStateRef.current.targetElementId);
+      if (dragSnapshot.activeType === "group" || dragSnapshot.movingIds.length !== 1) {
+        return normalizeDocumentElements(nextElements);
       }
 
-      if (dragStateRef.current.moved) {
-        window.setTimeout(() => {
-          dragStateRef.current = null;
-        }, 0);
-        return;
+      const targetElement = nextElements.find(
+        (element) => element.id === dragSnapshot.activeId,
+      );
+      if (!targetElement || targetElement.type === "group") {
+        return normalizeDocumentElements(nextElements);
       }
-    }
 
-    dragStateRef.current = null;
+      const currentGroup =
+        targetElement.groupId
+          ? nextElements.find(
+              (element) => element.id === targetElement.groupId && element.type === "group",
+            ) ?? null
+          : null;
+      const droppedGroup =
+        rawDropGroupId
+          ? nextElements.find(
+              (element) => element.id === rawDropGroupId && element.type === "group",
+            ) ?? null
+          : null;
+      const nextGroupId =
+        droppedGroup && isElementCenterInsideGroup(targetElement, droppedGroup)
+          ? droppedGroup.id
+          : currentGroup && isElementCenterInsideGroup(targetElement, currentGroup)
+            ? currentGroup.id
+            : droppedOnCanvas || !dropId
+              ? undefined
+              : undefined;
+
+      nextElements = nextElements.map((element) =>
+        element.id === targetElement.id
+          ? clampElementToStage(
+              {
+                ...element,
+                groupId: nextGroupId,
+              },
+              false,
+            )
+          : element,
+      );
+
+      return normalizeDocumentElements(nextElements);
+    });
+
+    clearActiveCanvasDrag();
   }
 
   function animateButtonPress(event: React.MouseEvent) {
@@ -1269,9 +1703,6 @@ export default function App() {
   }
 
   function handleElementClick(elementId: string, event: React.MouseEvent) {
-    const dragState = dragStateRef.current;
-    dragStateRef.current = null;
-
     if (editorMode === "preview") {
       const element = runtimeElementsRef.current.find((entry) => entry.id === elementId);
       if (!element || element.type !== "button") {
@@ -1301,7 +1732,7 @@ export default function App() {
       return;
     }
 
-    if (dragState?.moved) {
+    if (suppressElementClickRef.current) {
       return;
     }
 
@@ -1347,10 +1778,16 @@ export default function App() {
 
     clearAllTimers();
     setEditorMode("edit");
+    dragSnapshotRef.current = null;
+    setActiveCanvasDrag(null);
+    setDropTargetGroupId(null);
     setSnapToGrid(nextSnapToGrid);
     setDocumentElements(
-      (documentState.elements ?? []).map((element) =>
-        clampElementToStage(cloneElement(element), nextSnapToGrid),
+      normalizeDocumentElements(
+        (documentState.elements ?? []).map((element) =>
+          clampElementToStage(cloneElement(element), nextSnapToGrid),
+        ),
+        nextSnapToGrid,
       ),
     );
     setDocumentVariables(cloneVariables(documentState.variables ?? []));
@@ -1523,34 +1960,49 @@ export default function App() {
             />
           </div>
 
-          <CanvasWorkspace
-            mode={editorMode}
-            elements={activeElements}
-            variables={activeVariables}
-            selectedElementIds={editorMode === "edit" ? selectedElementIds : []}
-            selectionBox={editorMode === "edit" ? selectionBox : null}
-            onCanvasPointerDown={handleCanvasPointerDown}
-            onCanvasPointerMove={handleCanvasPointerMove}
-            onCanvasPointerUp={handleCanvasPointerUp}
-            onDropPaletteItem={(point) => {
-              if (editorMode === "edit" && paletteDragType) {
-                spawnElement(paletteDragType, point.x, point.y);
-                setPaletteDragType(null);
+          <DndContext
+            sensors={dndSensors}
+            collisionDetection={collisionDetectionStrategy}
+            onDragStart={handleDragStart}
+            onDragMove={handleDragMove}
+            onDragCancel={handleDragCancel}
+            onDragEnd={handleDragEnd}
+          >
+            <CanvasWorkspace
+              mode={editorMode}
+              elements={activeElements}
+              variables={activeVariables}
+              selectedElementIds={editorMode === "edit" ? selectedElementIds : []}
+              dropTargetGroupId={editorMode === "edit" ? dropTargetGroupId : null}
+              draggingElementIds={
+                editorMode === "edit" ? activeCanvasDrag?.movingIds ?? [] : []
               }
-            }}
-            onElementPointerDown={handleElementPointerDown}
-            onElementPointerMove={handleElementPointerMove}
-            onElementPointerUp={handleElementPointerUp}
-            onElementClick={handleElementClick}
-            onInputValueChange={(elementId, value) => {
-              if (editorMode === "preview") {
-                handleRuntimeInputValueChange(elementId, value);
-                return;
+              dragOffset={
+                editorMode === "edit"
+                  ? activeCanvasDrag?.delta ?? { x: 0, y: 0 }
+                  : { x: 0, y: 0 }
               }
+              selectionBox={editorMode === "edit" ? selectionBox : null}
+              onCanvasPointerDown={handleCanvasPointerDown}
+              onCanvasPointerMove={handleCanvasPointerMove}
+              onCanvasPointerUp={handleCanvasPointerUp}
+              onDropPaletteItem={(point) => {
+                if (editorMode === "edit" && paletteDragType) {
+                  spawnElement(paletteDragType, point.x, point.y);
+                  setPaletteDragType(null);
+                }
+              }}
+              onElementClick={handleElementClick}
+              onInputValueChange={(elementId, value) => {
+                if (editorMode === "preview") {
+                  handleRuntimeInputValueChange(elementId, value);
+                  return;
+                }
 
-              updateElement(elementId, { text: value });
-            }}
-          />
+                updateElement(elementId, { text: value });
+              }}
+            />
+          </DndContext>
         </div>
 
         <RightInspectorPanel
