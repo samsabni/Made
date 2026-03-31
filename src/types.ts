@@ -1,6 +1,8 @@
 export type ElementType = "button" | "text" | "panel" | "group" | "input";
 export type VariableType = "boolean" | "number" | "string" | "string_array";
 export type TriggerType = "click" | "timer" | "variable_change";
+export type ValueSourceMode = "static" | "variable";
+export type FontWeightOption = "regular" | "medium" | "semibold" | "bold";
 export type ActionType =
   | "set_variable"
   | "add_number"
@@ -58,6 +60,8 @@ export interface TriggerDefinition {
   type: TriggerType;
   conditions: Condition[];
   actions: TriggerAction[];
+  hasElse?: boolean;
+  elseActions?: TriggerAction[];
   timerIntervalMs?: number;
   timerAutoStart?: boolean;
   variableChangeMode?: "any" | "specific";
@@ -74,6 +78,17 @@ export interface CanvasElementModel {
   height: number;
   zIndex: number;
   text: string;
+  textSourceMode?: ValueSourceMode;
+  textVariableId?: string;
+  fontSize?: number;
+  fontWeight?: FontWeightOption;
+  fontItalic?: boolean;
+  buttonBackgroundMode?: ValueSourceMode;
+  buttonBackgroundColor?: string;
+  buttonBackgroundVariableId?: string;
+  buttonTextColorMode?: ValueSourceMode;
+  buttonTextColor?: string;
+  buttonTextColorVariableId?: string;
   visible: boolean;
   groupId?: string;
   triggers: TriggerDefinition[];

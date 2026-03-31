@@ -20,3 +20,20 @@ export function renderBoundText(rawText: string, variables: GameVariable[]): str
     return String(variable.value);
   });
 }
+
+export function getVariableDisplayValue(variableId: string | undefined, variables: GameVariable[]): string {
+  if (!variableId) {
+    return "";
+  }
+
+  const variable = variables.find((entry) => entry.id === variableId);
+  if (!variable) {
+    return "";
+  }
+
+  if (Array.isArray(variable.value)) {
+    return variable.value.join(", ");
+  }
+
+  return String(variable.value);
+}

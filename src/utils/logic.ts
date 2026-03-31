@@ -91,6 +91,22 @@ export function shouldRunTrigger(trigger: TriggerDefinition, changedVariableId?:
   return trigger.targetVariableId === changedVariableId;
 }
 
+export function shouldShowActionValueInput(action: TriggerAction): boolean {
+  return (
+    action.type !== "toggle_boolean" &&
+    action.type !== "show_element" &&
+    action.type !== "hide_element" &&
+    action.type !== "show_group" &&
+    action.type !== "hide_group" &&
+    action.type !== "bring_to_front" &&
+    action.type !== "send_to_back" &&
+    action.type !== "start_timer" &&
+    action.type !== "stop_timer" &&
+    action.type !== "pause_timer" &&
+    action.type !== "resume_timer"
+  );
+}
+
 export function actionTargetsElement(action: TriggerAction): boolean {
   return (
     action.type === "change_text" ||

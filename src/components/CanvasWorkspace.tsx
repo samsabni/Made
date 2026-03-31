@@ -1,9 +1,8 @@
 import type React from "react";
 import { useRef } from "react";
-import { Input } from "@heroui/react";
 import { motion } from "framer-motion";
 import { GRID_SIZE } from "../constants";
-import { renderBoundText } from "../utils/bindings";
+import { getVariableDisplayValue, renderBoundText } from "../utils/bindings";
 import type { CanvasElementModel, GameVariable } from "../types";
 
 export interface SelectionBox {
@@ -34,9 +33,6 @@ interface CanvasWorkspaceProps {
   onInputValueChange: (elementId: string, value: string) => void;
 }
 
-/**
- * Renders a fixed static stage. All coordinates are local to the visible canvas.
- */
 export function CanvasWorkspace(props: CanvasWorkspaceProps) {
   const {
     elements,
@@ -56,33 +52,49 @@ export function CanvasWorkspace(props: CanvasWorkspaceProps) {
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
 
-  /**
-   * Converts screen coordinates into local stage coordinates.
-   * @param clientX - pointer x in viewport space
-   * @param clientY - pointer y in viewport space
-   * @returns stage-local point used by drag, selection, and drop math
-   */
   function toWorldPoint(clientX: number, clientY: number): WorldPoint {
     const rect = viewportRef.current?.getBoundingClientRect();
     if (!rect) {
       return { x: 0, y: 0 };
     }
-
     return {
       x: clientX - rect.left,
       y: clientY - rect.top,
     };
   }
 
+  function resolveElementText(element: CanvasElementModel) {
+    if (element.textSourceMode === "variable") {
+      return getVariableDisplayValue(element.textVariableId, variables);
+    }
+
+    return renderBoundText(element.text, variables);
+  }
+
+  function resolveElementColor(variableId: string | undefined, fallback: string | undefined) {
+    return getVariableDisplayValue(variableId, variables) || fallback;
+  }
+
+  function resolveFontWeight(element: CanvasElementModel) {
+    switch (element.fontWeight) {
+      case "regular":
+        return 400;
+      case "medium":
+        return 500;
+      case "semibold":
+        return 600;
+      case "bold":
+        return 700;
+      default:
+        return 600;
+    }
+  }
+
   return (
-    <div className="relative h-full w-full overflow-hidden bg-[#f5f3ef]">
+    <div className="canvas-area">
       <div
         ref={viewportRef}
         className="canvas-viewport"
-        style={{
-          backgroundImage: `radial-gradient(circle at 1px 1px, rgba(120,113,108,0.14) 1px, transparent 0)`,
-          backgroundSize: `${GRID_SIZE}px ${GRID_SIZE}px`,
-        }}
         onPointerDown={(event) => onCanvasPointerDown(toWorldPoint(event.clientX, event.clientY), event)}
         onPointerMove={(event) => onCanvasPointerMove(toWorldPoint(event.clientX, event.clientY), event)}
         onPointerUp={(event) => onCanvasPointerUp(toWorldPoint(event.clientX, event.clientY), event)}
@@ -93,10 +105,16 @@ export function CanvasWorkspace(props: CanvasWorkspaceProps) {
         }}
       >
         {elements.length === 0 && (
-          <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-sm text-stone-400">
-            Drag an element or click to add
+          <div className="canvas-empty-hint">
+            <div className="canvas-empty-hint-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="3"/><path d="M12 8v8M8 12h8"/>
+              </svg>
+            </div>
+            <span className="canvas-empty-hint-text">Click an element in the toolbar to add it</span>
           </div>
         )}
+
         {[...elements]
           .filter((element) => element.visible)
           .sort((a, b) => a.zIndex - b.zIndex)
@@ -118,58 +136,101 @@ export function CanvasWorkspace(props: CanvasWorkspaceProps) {
                 onPointerDown={(event) =>
                   onElementPointerDown(element.id, toWorldPoint(event.clientX, event.clientY), event)
                 }
-                onPointerMove={(event) => onElementPointerMove(toWorldPoint(event.clientX, event.clientY), event)}
+                onPointerMove={(event) =>
+                  onElementPointerMove(toWorldPoint(event.clientX, event.clientY), event)
+                }
                 onPointerUp={(event) =>
                   onElementPointerUp(element.id, toWorldPoint(event.clientX, event.clientY), event)
                 }
                 onClick={(event) => onElementClick(element.id, event)}
               >
-                {element.type === "button" && (
-                  <motion.button
-                    className="canvas-button"
-                    whileTap={{ scale: 0.94 }}
-                    transition={{ type: "spring", stiffness: 520, damping: 28, mass: 0.45 }}
-                  >
-                    {renderBoundText(element.text, variables)}
-                  </motion.button>
-                )}
-                {element.type === "text" && (
-                  <div className="canvas-text">{renderBoundText(element.text, variables)}</div>
-                )}
-                {element.type === "panel" && (
-                  <div className="canvas-panel">
-                    <div className="text-sm font-medium text-stone-900">{renderBoundText(element.text, variables)}</div>
-                  </div>
-                )}
-                {element.type === "group" && (
-                  <div className="canvas-group">
-                    <div className="text-xs uppercase tracking-[0.18em] text-stone-500">{element.name}</div>
-                  </div>
-                )}
-                {element.type === "input" && (
-                  <div
-                    className="pointer-events-auto h-full w-full"
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onClick={(event) => event.stopPropagation()}
-                  >
-                    <Input
-                      size="sm"
-                      radius="sm"
-                      classNames={{
-                        inputWrapper: "border border-stone-200 bg-white shadow-none rounded-xl",
-                        input: "text-stone-900",
+                <div className="canvas-el-inner" style={{ width: "100%", height: "100%" }}>
+                  {element.type === "button" && (
+                    <motion.button
+                      className="canvas-button-el"
+                      style={{
+                        background:
+                          element.buttonBackgroundMode === "variable"
+                            ? resolveElementColor(element.buttonBackgroundVariableId, element.buttonBackgroundColor)
+                            : element.buttonBackgroundColor,
+                        color:
+                          element.buttonTextColorMode === "variable"
+                            ? resolveElementColor(element.buttonTextColorVariableId, element.buttonTextColor)
+                            : element.buttonTextColor,
+                        fontSize: element.fontSize ?? 14,
+                        fontWeight: resolveFontWeight(element),
+                        fontStyle: element.fontItalic ? "italic" : "normal",
                       }}
-                      value={element.text}
-                      onValueChange={(value) => onInputValueChange(element.id, value)}
-                    />
-                  </div>
-                )}
+                      whileTap={{ scale: 0.9 }}
+                      transition={{ type: "spring", stiffness: 520, damping: 26, mass: 0.4 }}
+                    >
+                      {resolveElementText(element)}
+                    </motion.button>
+                  )}
+                  {element.type === "text" && (
+                    <div
+                      className="canvas-text-el"
+                      style={{
+                        fontSize: element.fontSize ?? 20,
+                        fontWeight: resolveFontWeight(element),
+                        fontStyle: element.fontItalic ? "italic" : "normal",
+                      }}
+                    >
+                      {renderBoundText(element.text, variables)}
+                    </div>
+                  )}
+                  {element.type === "panel" && (
+                    <div className="canvas-panel-el">
+                      {renderBoundText(element.text, variables)}
+                    </div>
+                  )}
+                  {element.type === "group" && (
+                    <div className="canvas-group-el">
+                      {element.name}
+                    </div>
+                  )}
+                  {element.type === "input" && (
+                    <div
+                      className="canvas-input-el"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <input
+                        style={{
+                          width: "100%",
+                          height: "100%",
+                          border: "1px solid var(--border)",
+                          borderRadius: 10,
+                          background: "var(--bg-input)",
+                          color: "var(--text-primary)",
+                          fontFamily: "inherit",
+                          fontSize: 14,
+                          padding: "0 12px",
+                          outline: "none",
+                        }}
+                        value={element.text}
+                        onChange={(e) => onInputValueChange(element.id, e.target.value)}
+                        onFocus={(e) => {
+                          (e.target as HTMLInputElement).style.borderColor = "var(--accent)";
+                          (e.target as HTMLInputElement).style.background = "var(--bg-input-focus)";
+                          (e.target as HTMLInputElement).style.boxShadow = "var(--shadow-glow)";
+                        }}
+                        onBlur={(e) => {
+                          (e.target as HTMLInputElement).style.borderColor = "var(--border)";
+                          (e.target as HTMLInputElement).style.background = "var(--bg-input)";
+                          (e.target as HTMLInputElement).style.boxShadow = "none";
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}
+
         {selectionBox && (
           <div
-            className="pointer-events-none absolute border border-sky-400/80 bg-sky-400/10"
+            className="selection-box"
             style={{
               left: selectionBox.x,
               top: selectionBox.y,

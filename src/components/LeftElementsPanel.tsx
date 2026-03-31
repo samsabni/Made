@@ -33,23 +33,32 @@ export function LeftElementsPanel({
 
   return (
     <aside className="elements-toolbar">
-      <div className="mb-2 flex justify-center">
-        <button className="elements-close-button" onClick={onClose} aria-label="Close elements">
-          x
-        </button>
-      </div>
-      <div className="grid gap-2">
+      <button
+        className="elements-close-btn"
+        onClick={onClose}
+        aria-label="Close elements panel"
+        title="Close"
+      >
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+          <path d="M18 6 6 18M6 6l12 12"/>
+        </svg>
+      </button>
+
+      <div className="elements-toolbar-divider" />
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
         {(Object.keys(ELEMENT_LABELS) as ElementType[]).map((type) => {
           const Icon = ELEMENT_ICONS[type];
           return (
             <button
               key={type}
               onClick={() => onSpawnElement(type)}
-              className="elements-tool-button"
+              className="elements-tool-btn"
               aria-label={ELEMENT_LABELS[type]}
               title={ELEMENT_LABELS[type]}
+              id={`tool-${type}`}
             >
-              <Icon className="h-5 w-5 text-white" />
+              <Icon className="h-[17px] w-[17px]" />
             </button>
           );
         })}

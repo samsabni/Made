@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { LeftElementsPanel } from "./components/LeftElementsPanel";
 import { PanelToggleBar } from "./components/PanelToggleBar";
 import { RightInspectorPanel } from "./components/RightInspectorPanel";
+import { SettingsPanel } from "./components/SettingsPanel";
 import { VariablesPanel } from "./components/VariablesPanel";
 import {
   CanvasWorkspace,
@@ -53,6 +54,8 @@ export default function App() {
   const [elements, setElements] = useState<CanvasElementModel[]>([]);
   const [variables, setVariables] = useState<GameVariable[]>([]);
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
+  const [topbarVisible, setTopbarVisible] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [panelVisibility, setPanelVisibility] = useState<PanelVisibilityState>(INITIAL_PANEL_VISIBILITY);
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
   const [paletteDragType, setPaletteDragType] = useState<ElementType | null>(null);
@@ -78,7 +81,18 @@ export default function App() {
 
   useEffect(() => {
     window.localStorage.setItem("madegame-theme", theme);
+    document.documentElement.classList.toggle("theme-dark", theme === "dark");
+    document.documentElement.style.colorScheme = theme;
   }, [theme]);
+
+  useEffect(() => {
+    if (selectedElementIds.length === 0) {
+      setPanelVisibility((current) => ({
+        ...current,
+        right: { ...current.right, open: false },
+      }));
+    }
+  }, [selectedElementIds]);
 
   useEffect(() => {
     const node = canvasViewportRef.current;
@@ -313,6 +327,11 @@ export default function App() {
     const element = clampElementToStage(baseElement);
 
     setElements((current) => [...current, element]);
+    setSelectedElementIds([element.id]);
+    setPanelVisibility((current) => ({
+      ...current,
+      right: { open: true, minimized: false },
+    }));
   }
 
   function createVariable(type: VariableType = "number") {
@@ -423,6 +442,11 @@ export default function App() {
         });
 
         if (!conditionsPass) {
+          if (trigger.hasElse) {
+            (trigger.elseActions ?? []).forEach((action) =>
+              executeAction(action, currentElements, currentVariables),
+            );
+          }
           return;
         }
 
@@ -649,7 +673,7 @@ export default function App() {
     );
   }
 
-  function addAction(elementId: string, triggerId: string) {
+  function addAction(elementId: string, triggerId: string, branch: "then" | "else" = "then") {
     const action: TriggerAction = {
       id: makeId("action"),
       type: "add_number",
@@ -663,7 +687,12 @@ export default function App() {
               ...element,
               triggers: element.triggers.map((trigger) =>
                 trigger.id === triggerId
-                  ? { ...trigger, actions: [...trigger.actions, action] }
+                  ? {
+                      ...trigger,
+                      actions: branch === "then" ? [...trigger.actions, action] : trigger.actions,
+                      elseActions:
+                        branch === "else" ? [...(trigger.elseActions ?? []), action] : trigger.elseActions,
+                    }
                   : trigger,
               ),
             }
@@ -677,6 +706,7 @@ export default function App() {
     triggerId: string,
     actionId: string,
     patch: Partial<TriggerAction>,
+    branch: "then" | "else" = "then",
   ) {
     setElements((current) =>
       current.map((element) =>
@@ -687,9 +717,18 @@ export default function App() {
                 trigger.id === triggerId
                   ? {
                       ...trigger,
-                      actions: trigger.actions.map((action) =>
-                        action.id === actionId ? { ...action, ...patch } : action,
-                      ),
+                      actions:
+                        branch === "then"
+                          ? trigger.actions.map((action) =>
+                              action.id === actionId ? { ...action, ...patch } : action,
+                            )
+                          : trigger.actions,
+                      elseActions:
+                        branch === "else"
+                          ? (trigger.elseActions ?? []).map((action) =>
+                              action.id === actionId ? { ...action, ...patch } : action,
+                            )
+                          : trigger.elseActions,
                     }
                   : trigger,
               ),
@@ -699,7 +738,12 @@ export default function App() {
     );
   }
 
-  function deleteAction(elementId: string, triggerId: string, actionId: string) {
+  function deleteAction(
+    elementId: string,
+    triggerId: string,
+    actionId: string,
+    branch: "then" | "else" = "then",
+  ) {
     setElements((current) =>
       current.map((element) =>
         element.id === elementId
@@ -709,7 +753,14 @@ export default function App() {
                 trigger.id === triggerId
                   ? {
                       ...trigger,
-                      actions: trigger.actions.filter((action) => action.id !== actionId),
+                      actions:
+                        branch === "then"
+                          ? trigger.actions.filter((action) => action.id !== actionId)
+                          : trigger.actions,
+                      elseActions:
+                        branch === "else"
+                          ? (trigger.elseActions ?? []).filter((action) => action.id !== actionId)
+                          : trigger.elseActions,
                     }
                   : trigger,
               ),
@@ -820,6 +871,7 @@ export default function App() {
 
     event.currentTarget.setPointerCapture(event.pointerId);
     setSelectedElementIds([]);
+    setSettingsOpen(false);
     beginSelection();
     dragStateRef.current = {
       mode: "selection",
@@ -861,6 +913,10 @@ export default function App() {
         })
         .map((element) => element.id);
       setSelectedElementIds(selected);
+      setPanelVisibility((current) => ({
+        ...current,
+        right: { open: selected.length > 0, minimized: false },
+      }));
     }
 
     dragStateRef.current = null;
@@ -872,8 +928,18 @@ export default function App() {
     point: WorldPoint,
     event: React.PointerEvent<HTMLDivElement>,
   ) {
+    const element = elements.find((entry) => entry.id === elementId);
     if (event.shiftKey) {
       return;
+    }
+
+    if (element?.type !== "button" && !selectedElementIds.includes(elementId)) {
+      setSelectedElementIds([elementId]);
+      setPanelVisibility((current) => ({
+        ...current,
+        right: { open: true, minimized: false },
+      }));
+      setSettingsOpen(false);
     }
 
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -963,6 +1029,15 @@ export default function App() {
 
     if (dragState?.moved) {
       return;
+    }
+
+    if (element.type !== "button") {
+      setSelectedElementIds([elementId]);
+      setPanelVisibility((current) => ({
+        ...current,
+        right: { open: true, minimized: false },
+      }));
+      setSettingsOpen(false);
     }
 
     if (element.type === "button") {
@@ -1057,36 +1132,71 @@ export default function App() {
   }, [selectedElementIds, elements]);
 
   return (
-    <div className={`flex h-screen text-stone-900 ${theme === "dark" ? "theme-dark bg-[#111315]" : "bg-[#ebe9e4]"}`}>
+    <div className={theme === "dark" ? "theme-dark" : ""} style={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <input
         ref={importInputRef}
         type="file"
         accept="application/json"
-        className="hidden"
+        style={{ display: "none" }}
         onChange={handleImportFile}
       />
-      <div className="relative flex flex-1 overflow-hidden">
-        <PanelToggleBar
-          panelVisibility={panelVisibility}
-          onOpenPanel={(panel) => togglePanel(panel, "open")}
+
+      {/* Floating top toolbar */}
+      <PanelToggleBar
+        panelVisibility={panelVisibility}
+        onOpenPanel={(panel) => togglePanel(panel, "open")}
+        onCreateVariable={() => createVariable()}
+        theme={theme}
+        onToggleTheme={() => setTheme((current) => (current === "light" ? "dark" : "light"))}
+        visible={topbarVisible}
+        onHide={() => setTopbarVisible(false)}
+        settingsOpen={settingsOpen}
+        onToggleSettings={() => setSettingsOpen((current) => !current)}
+      />
+
+      {!topbarVisible && (
+        <button
+          className="topbar-restore-btn"
+          type="button"
+          onClick={() => setTopbarVisible(true)}
+          aria-label="Show toolbar"
+          title="Show toolbar"
+          id="btn-show-topbar"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M6 9l6 6 6-6"/>
+          </svg>
+        </button>
+      )}
+
+      <SettingsPanel
+        open={settingsOpen && topbarVisible}
+        onExport={exportDocument}
+        onImport={() => importInputRef.current?.click()}
+      />
+
+      {/* Main layout row */}
+      <div style={{ display: "flex", flex: 1, overflow: "hidden", position: "relative" }}>
+        {/* Left: Variables panel */}
+        <VariablesPanel
+          panelState={panelVisibility.variables}
+          variables={variables}
           onCreateVariable={() => createVariable()}
-          onExport={exportDocument}
-          onImport={() => importInputRef.current?.click()}
-          theme={theme}
-          onToggleTheme={() => setTheme((current) => (current === "light" ? "dark" : "light"))}
+          onUpdateVariable={updateVariable}
+          onDeleteVariable={deleteVariable}
+          onClose={() => closePanel("variables")}
         />
-        <div className="flex h-full gap-0">
-          <VariablesPanel
-            panelState={panelVisibility.variables}
-            variables={variables}
-            onCreateVariable={() => createVariable()}
-            onUpdateVariable={updateVariable}
-            onDeleteVariable={deleteVariable}
-            onClose={() => closePanel("variables")}
-          />
-        </div>
-        <div ref={canvasViewportRef} className="relative flex-1">
-          <div className="absolute left-4 top-1/2 z-30 -translate-y-1/2">
+
+        {/* Center: Canvas */}
+        <div ref={canvasViewportRef} style={{ position: "relative", flex: 1, overflow: "hidden" }}>
+          {/* Floating left elements toolbar */}
+          <div style={{
+            position: "absolute",
+            left: 16,
+            top: "50%",
+            transform: "translateY(-50%)",
+            zIndex: 30,
+          }}>
             <LeftElementsPanel
               panelState={panelVisibility.left}
               onSpawnElement={(type) => {
@@ -1096,6 +1206,7 @@ export default function App() {
               onClose={() => closePanel("left")}
             />
           </div>
+
           <CanvasWorkspace
             elements={elements}
             variables={variables}
@@ -1117,28 +1228,28 @@ export default function App() {
             onInputValueChange={(elementId, value) => updateElement(elementId, { text: value })}
           />
         </div>
-        <div className="flex h-full">
-          <RightInspectorPanel
-            panelState={panelVisibility.right}
-            selectedElement={selectedElement}
-            elements={elements}
-            variables={variables}
-            onUpdateElement={updateElement}
-            onBringToFront={bringToFront}
-            onSendToBack={sendToBack}
-            onDeleteElement={(elementId) => deleteElements([elementId])}
-            onClose={() => closePanel("right")}
-            onAddTrigger={addTrigger}
-            onUpdateTrigger={updateTrigger}
-            onDeleteTrigger={deleteTrigger}
-            onAddAction={addAction}
-            onUpdateAction={updateAction}
-            onDeleteAction={deleteAction}
-            onAddCondition={addCondition}
-            onUpdateCondition={updateCondition}
-            onDeleteCondition={deleteCondition}
-          />
-        </div>
+
+        {/* Right: Inspector panel */}
+        <RightInspectorPanel
+          panelState={panelVisibility.right}
+          selectedElement={selectedElement}
+          elements={elements}
+          variables={variables}
+          onUpdateElement={updateElement}
+          onBringToFront={bringToFront}
+          onSendToBack={sendToBack}
+          onDeleteElement={(elementId) => deleteElements([elementId])}
+          onClose={() => closePanel("right")}
+          onAddTrigger={addTrigger}
+          onUpdateTrigger={updateTrigger}
+          onDeleteTrigger={deleteTrigger}
+          onAddAction={addAction}
+          onUpdateAction={updateAction}
+          onDeleteAction={deleteAction}
+          onAddCondition={addCondition}
+          onUpdateCondition={updateCondition}
+          onDeleteCondition={deleteCondition}
+        />
       </div>
     </div>
   );

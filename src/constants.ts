@@ -87,9 +87,30 @@ export function createDefaultElement(
 
   switch (type) {
     case "button":
-      return { ...base, width: 148, height: 44, text: "Click me" };
+      return {
+        ...base,
+        width: 148,
+        height: 44,
+        text: "Click me",
+        textSourceMode: "static",
+        fontSize: 14,
+        fontWeight: "semibold",
+        fontItalic: false,
+        buttonBackgroundMode: "static",
+        buttonBackgroundColor: "#ffffff",
+        buttonTextColorMode: "static",
+        buttonTextColor: "#18181b",
+      };
     case "text":
-      return { ...base, width: 180, height: 36, text: "Text" };
+      return {
+        ...base,
+        width: 180,
+        height: 36,
+        text: "Text",
+        fontSize: 20,
+        fontWeight: "medium",
+        fontItalic: false,
+      };
     case "panel":
       return { ...base, width: 240, height: 160, text: "Panel" };
     case "group":
@@ -112,6 +133,8 @@ export function createDefaultTrigger(id: string, type: TriggerDefinition["type"]
       type,
       conditions: [],
       actions: [],
+      hasElse: false,
+      elseActions: [],
       timerIntervalMs: 1000,
       timerAutoStart: false,
     };
@@ -123,6 +146,8 @@ export function createDefaultTrigger(id: string, type: TriggerDefinition["type"]
       type,
       conditions: [],
       actions: [],
+      hasElse: false,
+      elseActions: [],
       variableChangeMode: "any",
     };
   }
@@ -132,5 +157,7 @@ export function createDefaultTrigger(id: string, type: TriggerDefinition["type"]
     type,
     conditions: [],
     actions: [],
+    hasElse: false,
+    elseActions: [],
   };
 }
